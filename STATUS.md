@@ -188,11 +188,14 @@ MVP: ✅ P5.1 rename → crossfadarr + secrets audit (git repo initialized) ·
 316 artists in ~5 s on warm caches) ·
 ✅ P5.3 YTM auth in Settings (paste headers / Copy-as-cURL → validated against a
 live liked-songs call before auth.json is replaced; scan errors link here) ·
-🔶 P5.10 YTM OAuth device-flow — **promoted to MVP blocker** (2026-07-18:
-cookie auth died twice in one day; OAuth is now the recommended method, headers
-the fallback). Code done (`ytm_client.py`, `/api/ytm/oauth/*`, Settings UI,
-oauth.json outranks auth.json); awaiting Tim's one-time Google Cloud client +
-live Connect to close ·
+⛔ P5.10 YTM OAuth — **built, then found blocked upstream** (2026-07-18): the
+device flow works end-to-end and mints a valid token (official Data API accepts
+it), but YT Music's internal API rejects ALL OAuth Bearer tokens with HTTP 400
+(known issue, ytmusicapi #676/#682; no fix in 1.12.1). Code kept + marked
+"rejected upstream" in Settings; task #122 stays open as a monitor. Mitigation:
+cookie auth hardened — Settings now teaches the **incognito-session trick**
+(copy headers from a private window, close without logging out → cookies aren't
+rotated → lasts weeks, vs ~40 min from an active browser session) ·
 P5.4 Forms login · P5.5 Lidarr-read cache
 · P5.6 TheAudioDB key handling · P5.7 dockerize · P5.8 MIT + README + disclaimers ·
 P5.9 public repo + Actions → GHCR.
