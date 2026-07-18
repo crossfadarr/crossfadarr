@@ -9,6 +9,7 @@ important one being expired YTM auth, which gets an actionable message.
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 
@@ -129,6 +130,13 @@ def _worker(auth: str) -> None:
         except Exception as e:  # noqa: BLE001 - surfaced to the UI
             auth_err = key in ("ingest", "thumbs") and _is_auth_error(e)
             msg = AUTH_HELP if auth_err else f"{label} failed: {str(e)[:300]}"
+            if auth_err:
+                try:  # data point for the cookie-lifetime question
+                    hours = (time.time() - os.path.getmtime(auth)) / 3600
+                    lasted = f"{hours / 24:.1f} days" if hours >= 48 else f"{hours:.1f} hours"
+                    msg += f" (this auth lasted {lasted})"
+                except OSError:
+                    pass
             _set(state="error", error=msg, error_kind="auth" if auth_err else "pipeline",
                  message=msg, finished_at=time.time())
             return
