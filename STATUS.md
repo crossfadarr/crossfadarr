@@ -188,10 +188,14 @@ MVP: ✅ P5.1 rename → crossfadarr + secrets audit (git repo initialized) ·
 316 artists in ~5 s on warm caches) ·
 ✅ P5.3 YTM auth in Settings (paste headers / Copy-as-cURL → validated against a
 live liked-songs call before auth.json is replaced; scan errors link here) ·
+🔶 P5.10 YTM OAuth device-flow — **promoted to MVP blocker** (2026-07-18:
+cookie auth died twice in one day; OAuth is now the recommended method, headers
+the fallback). Code done (`ytm_client.py`, `/api/ytm/oauth/*`, Settings UI,
+oauth.json outranks auth.json); awaiting Tim's one-time Google Cloud client +
+live Connect to close ·
 P5.4 Forms login · P5.5 Lidarr-read cache
 · P5.6 TheAudioDB key handling · P5.7 dockerize · P5.8 MIT + README + disclaimers ·
 P5.9 public repo + Actions → GHCR.
-Fast-follow: P5.10 YTM OAuth device-flow.
 Later ideas: track-level (liked songs → specific albums), playlist ingestion.
 
 Tracked in Vikunja project 12 (epic #8, sub-tasks P5.0–P5.10).
