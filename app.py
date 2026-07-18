@@ -705,8 +705,14 @@ TEMPLATE = r"""
   .gear{cursor:pointer;font-size:20px;padding:2px 6px;border-radius:8px;color:#cbd5e1}
   .gear:hover{background:#0e1218}
   .modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:50}
-  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px 30px;width:min(700px,94vw);max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px -20px #000;font-size:14px}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px 30px;width:min(700px,94vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -20px #000;font-size:14px}
   .sheet h3{margin:0 0 16px;font-size:19px}
+  .sheetbody{overflow-y:auto;min-height:0;padding-right:6px}
+  .sheethead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .sheethead h3{margin:0}
+  .closex{cursor:pointer;color:var(--mut);font-size:18px;line-height:1;padding:4px 9px;border-radius:8px}
+  .closex:hover{background:#0e1218;color:#fff}
+  .sheet .foot{flex:0 0 auto;border-top:1px solid var(--line);padding-top:14px}
   .sheet label{display:block;font-size:13px;color:var(--mut);margin:14px 0 5px}
   .sheet input,.sheet select{width:100%;font-size:14px;padding:8px 11px}
   .sheet textarea{width:100%;background:#0e1218;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-family:ui-monospace,Consolas,monospace;font-size:12px;resize:vertical}
@@ -891,8 +897,12 @@ TEMPLATE = r"""
 
 <div id="settings" class="modal" style="display:none">
   <div class="sheet">
-    <h3>⚙ Settings</h3>
-    <label>Lidarr URL</label>
+    <div class="sheethead">
+      <h3>⚙ Settings</h3>
+      <span class="closex" onclick="closeSettings()" title="Close (unsaved changes are discarded)">✕</span>
+    </div>
+    <div class="sheetbody">
+    <label style="margin-top:0">Lidarr URL</label>
     <input id="s_url" type="text" value="{{lidarr_url}}" placeholder="http://192.168.0.54:8686">
     <label>API key</label>
     <div class="inline">
@@ -981,6 +991,7 @@ TEMPLATE = r"""
       <div class="hint"><a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a> → new project → enable <b>YouTube Data API v3</b> → OAuth consent screen: publish to <b>Production</b> (Testing tokens die after 7 days) → Credentials → Create OAuth client ID → type <b>TVs and Limited Input devices</b> → copy ID + secret above. One-time, ~5 min.</div>
     </div>
 
+    </div>
     <div class="foot">
       <button type="button" onclick="saveSettings()">Save</button>
       <button class="secondary" type="button" onclick="closeSettings()">Cancel</button>
