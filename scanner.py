@@ -24,22 +24,25 @@ _LOCK = threading.Lock()
 _IDLE = {
     "state": "idle",        # idle | running | done | error
     "stage": None, "stage_label": None, "stage_index": 0, "stages_total": 5,
-    "done": 0, "total": 0, "percent": 0.0, "message": "",
+    "done": 0, "total": 0, "percent": 0.0, "message": "", "hint": None,
     "error": None, "error_kind": None,   # error_kind: auth | pipeline
     "started_at": None, "finished_at": None, "summary": None,
 }
 STATE = dict(_IDLE)
 
-# (key, label, weight) — weight approximates each stage's share of wall-clock
-# on a cold cache (MusicBrainz stages dominate at ~1 req/s).
+_MB_HINT = ("MusicBrainz allows ~1 request per second, so a first scan takes "
+            "several minutes — results are cached, re-scans are fast.")
+
+# (key, label, weight, hint) — weight approximates each stage's share of
+# wall-clock on a cold cache (MusicBrainz stages dominate at ~1 req/s).
 STAGES = [
-    ("ingest",  "Reading YouTube Music library",     5),
-    ("match",   "Matching artists on MusicBrainz",  40),
-    ("artwork", "Fetching artist artwork",          15),
-    ("thumbs",  "Fetching YTM fallback thumbnails", 10),
-    ("genres",  "Fetching genres",                  30),
+    ("ingest",  "Reading YouTube Music library",     5, None),
+    ("match",   "Matching artists on MusicBrainz",  40, _MB_HINT),
+    ("artwork", "Fetching artist artwork",          15, None),
+    ("thumbs",  "Fetching YTM fallback thumbnails", 10, None),
+    ("genres",  "Fetching genres",                  30, _MB_HINT),
 ]
-_WEIGHT_TOTAL = sum(w for _, _, w in STAGES)
+_WEIGHT_TOTAL = sum(s[2] for s in STAGES)
 
 AUTH_HELP = ("YouTube Music auth is missing or expired. Open ⚙ Settings → "
              "YouTube Music auth and paste fresh headers (Copy as cURL (bash) "
@@ -106,9 +109,10 @@ def _stage_cb(label: str, weight_done: int, weight: int):
 def _worker(auth: str) -> None:
     weight_done = 0
     summary: dict = {}
-    for idx, (key, label, weight) in enumerate(STAGES, 1):
+    for idx, (key, label, weight, hint) in enumerate(STAGES, 1):
         _set(stage=key, stage_label=label, stage_index=idx, done=0, total=0,
-             message=label, percent=round(100.0 * weight_done / _WEIGHT_TOTAL, 1))
+             message=label, hint=hint,
+             percent=round(100.0 * weight_done / _WEIGHT_TOTAL, 1))
         cb = _stage_cb(label, weight_done, weight)
         try:
             if key == "ingest":

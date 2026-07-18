@@ -412,6 +412,8 @@ TEMPLATE = r"""
   .setupbar.scan.err{background:#78350f;color:#fde68a}
   .setupbar.scan.ok{background:#14351f;color:#86efac}
   .scantrack{flex:1 1 160px;min-width:120px;height:6px;background:#0e1218;border-radius:999px;overflow:hidden}
+  #scanhint{flex-basis:100%;font-size:12px;color:#8b98a8}
+  #scanhint:empty{display:none}
   .scanfill{height:100%;width:0%;background:var(--red);border-radius:999px;transition:width .4s}
   .setupbar.scan.ok .scanfill{background:#22c55e}
   #scanbtn{white-space:nowrap}
@@ -522,6 +524,7 @@ TEMPLATE = r"""
   <div class="scantrack"><div class="scanfill" id="scanfill"></div></div>
   <button class="secondary" id="scanretry" style="display:none" onclick="startScan()">Retry scan</button>
   <button class="secondary" id="scanreload" style="display:none" onclick="location.reload()">Reload</button>
+  <span id="scanhint"></span>
 </div>
 {% if not configured %}
 <div class="setupbar">⚠ Lidarr isn't configured yet. <button onclick="openSettings()">Open settings</button> to connect your Lidarr endpoint &amp; API key.</div>
@@ -767,6 +770,8 @@ function scanUI(j){
     j.state==='done' ? '✓ Scan complete — reload to see updated artists' : j.message;
   document.getElementById('scanstage').textContent =
     j.state==='running' ? `stage ${j.stage_index}/${j.stages_total}` : '';
+  document.getElementById('scanhint').textContent =
+    (j.state==='running' && j.hint) ? j.hint : '';
   document.getElementById('scanfill').style.width=(j.state==='done'?100:(j.percent||0))+'%';
   document.getElementById('scanretry').style.display = j.state==='error' ? '' : 'none';
   document.getElementById('scanreload').style.display = j.state==='done' ? '' : 'none';
