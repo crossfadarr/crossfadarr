@@ -184,6 +184,7 @@ def load_rows(existing: set) -> list[dict]:
     tad = _load_json("data/artwork.json")
     ytm = _load_json("data/ytm_thumbs.json")
     gen = _load_json("data/genres.json")
+    rgc = _load_json("data/release_counts.json")
     rows, seen = [], set()
     for a in matches:
         m = a["match"]
@@ -219,6 +220,8 @@ def load_rows(existing: set) -> list[dict]:
             "match_label": {"green": "full match", "amber": "partial match",
                             "red": "weak match", "none": "no match"}.get(m["tier"], ""),
             "addable": bool(mbid) and not in_lib and not dup,
+            # P5.11 - MB lists zero release groups: adding gives an empty artist
+            "no_releases": bool(mbid) and rgc.get(mbid) == 0,
         })
     rows.sort(key=lambda r: (TIER_ORDER.get(r["tier"], 9), -r["liked"], r["ytm_name"].lower()))
     return rows
@@ -673,6 +676,7 @@ TEMPLATE = r"""
   .tag{font-size:10px;color:var(--mut);border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-right:3px;text-transform:capitalize}
   .liked{color:#f472b6}
   .gchip{font-size:10px;color:#c7d2fe;background:#1e3a5f;border-radius:5px;padding:0 5px;margin-left:4px;text-transform:capitalize}
+  .norel{font-size:10px;color:#fcd34d;background:#78350f;border-radius:5px;padding:0 5px;margin-left:4px;cursor:help}
   .help{position:relative;cursor:help;color:var(--mut);font-style:normal;outline:none}
   .help .pop{display:none;position:absolute;top:130%;left:0;z-index:20;width:290px;background:#111;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:12px;line-height:1.55;color:#ddd;box-shadow:0 8px 24px -8px #000;white-space:normal;font-weight:400}
   .help:hover .pop,.help:focus .pop{display:block}
@@ -816,6 +820,7 @@ TEMPLATE = r"""
           <select id="fsource" onchange="applyFilters()"><option value="all">All</option><option value="library">Library</option><option value="subscription">Subscription</option><option value="liked">Liked</option></select></label>
         <label class="ctl">Type <select id="ftype" onchange="applyFilters()"><option value="all">All</option>{% for t in types %}<option value="{{t}}">{{t}}</option>{% endfor %}</select></label>
         <label class="ctl">Sort <select id="sort" onchange="applySort()"><option value="liked">Most liked</option><option value="name_az">Name A–Z</option><option value="name_za">Name Z–A</option><option value="tier">Confidence</option></select></label>
+        <label class="ctl" title="Artists MusicBrainz lists no releases for — adding them creates an empty Lidarr artist"><input type="checkbox" id="fnorel" onchange="applyFilters()"> hide no-release</label>
       </div>
       <label class="ctl gcol">Genre
         <div class="ms" id="genreMS" onclick="document.getElementById('genreInput').focus()">
@@ -868,7 +873,7 @@ TEMPLATE = r"""
 <div id="results"></div>
 <div id="items" class="cards">
 {% for r in rows %}
-  <div class="item {{'disabled' if not r.addable else ''}}" data-tier="{{r.tier}}" data-name="{{r.ytm_name|lower}}" data-addable="{{'1' if r.addable else '0'}}" data-mbid="{{r.mbid or ''}}" data-liked="{{r.liked}}" data-sources="{{r.sources|join(',')}}" data-type="{{r.mb_type}}" data-genres="{{r.genres|join(',')}}" data-inlib="{{'1' if r.in_lib else '0'}}">
+  <div class="item {{'disabled' if not r.addable else ''}}" data-tier="{{r.tier}}" data-name="{{r.ytm_name|lower}}" data-addable="{{'1' if r.addable else '0'}}" data-mbid="{{r.mbid or ''}}" data-liked="{{r.liked}}" data-sources="{{r.sources|join(',')}}" data-type="{{r.mb_type}}" data-genres="{{r.genres|join(',')}}" data-inlib="{{'1' if r.in_lib else '0'}}" data-norel="{{'1' if r.no_releases else '0'}}">
     <div class="thumb">
       <span class="pickwrap">{% if r.addable %}<input type="checkbox" class="pick" onchange="updateCount()">{% endif %}</span>
       {% if r.art %}<img class="art" loading="lazy" src="{{r.art}}" alt="">{% else %}<div class="ph">{{r.initials}}</div>{% endif %}
@@ -879,7 +884,7 @@ TEMPLATE = r"""
     </div>
     <div class="body">
       <div class="name" title="{{r.ytm_name}}{% if r.mb_name %} → {{r.mb_name}}{% endif %}">{{r.ytm_name}}</div>
-      <div class="sub">{% for s in r.sources %}<span class="tag">{{s}}</span>{% endfor %}{% if r.liked %}<span class="liked">♥{{r.liked}}</span>{% endif %}{% if r.genre %}<span class="gchip">{{r.genre}}</span>{% endif %}</div>
+      <div class="sub">{% for s in r.sources %}<span class="tag">{{s}}</span>{% endfor %}{% if r.liked %}<span class="liked">♥{{r.liked}}</span>{% endif %}{% if r.genre %}<span class="gchip">{{r.genre}}</span>{% endif %}{% if r.no_releases %}<span class="norel" title="MusicBrainz lists no releases for this match — adding it to Lidarr would create an empty artist. It may also be the wrong entity: check the match dropdown for a better entry.">no releases</span>{% endif %}</div>
       <div class="match">
         {% if r.in_lib %}<span class="muted">✓ in Lidarr</span>
         {% elif r.dup %}<span class="muted">dup — {{r.mb_name}}</span>
@@ -1167,6 +1172,7 @@ function applyFilters(){
     if(ok && src!=='all') ok = (it.dataset.sources||'').split(',').includes(src);
     if(ok && typ!=='all') ok = it.dataset.type===typ;
     if(ok && gens.length){const g=(it.dataset.genres||'').split(','); ok = gens.some(x=>g.includes(x));}
+    if(ok && document.getElementById('fnorel').checked) ok = it.dataset.norel!=='1';
     it.style.display = ok ? '' : 'none';
   });
 }
@@ -1212,7 +1218,11 @@ function applySort(){
   }).forEach(el=>box.appendChild(el));
 }
 function checkVisible(v){
-  items().forEach(it=>{ if(it.style.display!=='none'){const c=it.querySelector('.pick'); if(c) c.checked=v;} });
+  items().forEach(it=>{
+    if(it.style.display==='none') return;
+    if(v && it.dataset.norel==='1') return;  // no-release artists opt in only
+    const c=it.querySelector('.pick'); if(c) c.checked=v;
+  });
   updateCount();
 }
 function updateCount(){
