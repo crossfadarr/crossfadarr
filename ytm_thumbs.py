@@ -16,6 +16,8 @@ import sqlite3
 import sys
 import time
 
+from fsio import write_json_atomic
+
 MATCHES = os.path.join("data", "matches.json")
 ART = os.path.join("data", "artwork.json")
 OUT = os.path.join("data", "ytm_thumbs.json")
@@ -23,13 +25,17 @@ CACHE_DB = "ytm_thumb_cache.db"
 INTERVAL = 0.3
 
 
-def _pick_auth() -> str:
-    if len(sys.argv) > 1:
-        return sys.argv[1]
+def _default_auth() -> str:
     for c in ("auth.json", "browser.json", "oauth.json"):
         if os.path.exists(c):
             return c
     return "auth.json"
+
+
+def _pick_auth() -> str:
+    if len(sys.argv) > 1:
+        return sys.argv[1]
+    return _default_auth()
 
 
 def _largest(thumbs: list) -> str | None:
@@ -38,14 +44,10 @@ def _largest(thumbs: list) -> str | None:
     return max(thumbs, key=lambda t: t.get("width", 0)).get("url")
 
 
-def main() -> int:
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:  # noqa: BLE001
-        pass
-
+def run(auth_path: str | None = None, progress=None) -> dict:
+    """Fetch YTM fallback thumbs; `progress(i, total)` per target artist."""
     from ytmusicapi import YTMusic
-    yt = YTMusic(_pick_auth())
+    yt = YTMusic(auth_path or _default_auth())
 
     matches = json.load(open(MATCHES, encoding="utf-8"))
     tad = json.load(open(ART, encoding="utf-8")) if os.path.exists(ART) else {}
@@ -63,7 +65,6 @@ def main() -> int:
         if mbid and cids and mbid not in tad:
             targets.append((mbid, cids[0]))
 
-    print(f"{len(targets)} artists need a YTM fallback thumb")
     out = {}
     fetched = 0
     for i, (mbid, cid) in enumerate(targets, 1):
@@ -82,12 +83,28 @@ def main() -> int:
             time.sleep(INTERVAL)
         if url:
             out[mbid] = url
-        if i % 25 == 0 or i == len(targets):
-            print(f"  ...{i}/{len(targets)} (live {fetched})")
+        if progress:
+            progress(i, len(targets))
 
-    json.dump(out, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    print(f"wrote {OUT}: {len(out)} fallback thumbs "
-          f"({len(tad)} had TheAudioDB art already)")
+    write_json_atomic(OUT, out)
+    return {"targets": len(targets), "fetched": fetched,
+            "thumbs": len(out), "tad": len(tad)}
+
+
+def main() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+    def _cb(i: int, total: int) -> None:
+        if i % 25 == 0 or i == total:
+            print(f"  ...{i}/{total}")
+
+    s = run(auth_path=_pick_auth(), progress=_cb)
+    print(f"{s['targets']} artists needed a YTM fallback thumb (live {s['fetched']})")
+    print(f"wrote {OUT}: {s['thumbs']} fallback thumbs "
+          f"({s['tad']} had TheAudioDB art already)")
     return 0
 
 

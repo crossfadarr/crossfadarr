@@ -18,6 +18,8 @@ import time
 
 import requests
 
+from fsio import write_json_atomic
+
 API = "https://www.theaudiodb.com/api/v1/json/2/artist-mb.php"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) crossfadarr/0.1"
 CACHE_DB = "artwork_cache.db"
@@ -43,7 +45,8 @@ def fetch(mbid: str) -> str | None:
     return a.get("strArtistThumb") or a.get("strArtistWideThumb") or a.get("strArtistLogo")
 
 
-def main() -> int:
+def run(progress=None) -> dict:
+    """Fetch artwork for all matched MBIDs; `progress(i, total)` per live fetch."""
     matches = json.load(open(MATCHES, encoding="utf-8"))
     mbids = []
     seen = set()
@@ -56,8 +59,8 @@ def main() -> int:
 
     con = _cache()
     have = {row[0]: row[1] for row in con.execute("SELECT mbid, url FROM art")}
+    cached = len(have)
     todo = [m for m in mbids if m not in have]
-    print(f"{len(mbids)} matched MBIDs; {len(todo)} to fetch, {len(have)} cached")
 
     for i, mb in enumerate(todo, 1):
         try:
@@ -67,13 +70,24 @@ def main() -> int:
         con.execute("INSERT OR REPLACE INTO art VALUES (?,?)", (mb, url))
         con.commit()
         have[mb] = url
-        if i % 25 == 0 or i == len(todo):
-            print(f"  ...{i}/{len(todo)}")
+        if progress:
+            progress(i, len(todo))
         time.sleep(INTERVAL)
 
     art = {mb: have.get(mb) for mb in mbids if have.get(mb)}
-    json.dump(art, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    print(f"wrote {OUT}: {len(art)}/{len(mbids)} artists have artwork")
+    write_json_atomic(OUT, art)
+    return {"mbids": len(mbids), "fetched": len(todo), "cached": cached,
+            "with_art": len(art)}
+
+
+def main() -> int:
+    def _cb(i: int, total: int) -> None:
+        if i % 25 == 0 or i == total:
+            print(f"  ...{i}/{total}")
+
+    s = run(progress=_cb)
+    print(f"{s['mbids']} matched MBIDs; {s['fetched']} fetched, {s['cached']} cached")
+    print(f"wrote {OUT}: {s['with_art']}/{s['mbids']} artists have artwork")
     return 0
 
 

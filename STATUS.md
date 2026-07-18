@@ -32,9 +32,13 @@ by actually adding an artist and confirming it in Lidarr.
 
 ## How it works
 
-Two parts: an **offline pipeline** that builds JSON data files, and a **Flask app**
-that reviews them and pushes to Lidarr. (Phase 5 folds the pipeline into an in-app
-"Refresh from YouTube Music" button with a progress bar.)
+Two parts: a **pipeline** that builds JSON data files, and a **Flask app** that
+reviews them and pushes to Lidarr. Since P5.2 the pipeline also runs **in-app**:
+the "⟳ Refresh from YouTube Music" header button runs all five stages in a
+background thread (`scanner.py`) with a weighted progress strip, polled via
+`GET /api/scan/status`; the CLI scripts still work standalone (their `main()`s
+now wrap shared `run(progress=...)` functions). Data files are written
+atomically (`fsio.write_json_atomic`) because the app re-reads them per request.
 
 ```
 YouTube Music (ytmusicapi, your auth)
@@ -74,7 +78,9 @@ reference library (155 TheAudioDB + 105 YTM fallback of 287 matched).
 
 | File | Role |
 |---|---|
-| `app.py` | Flask review UI + Lidarr push + settings + favicon |
+| `app.py` | Flask review UI + Lidarr push + settings + scan routes + favicon |
+| `scanner.py` | In-app scan: background thread, stage progress, auth-error handling |
+| `fsio.py` | `write_json_atomic` (readers never see partial data files) |
 | `lidarr.py` | Lidarr client (profiles, existing-artist dedup, add) |
 | `ingest.py` | Pull YTM library/subs/liked → normalized `data/artists.json` |
 | `matcher.py` | Resolve artists → MusicBrainz IDs (cached, throttled, confidence) |
@@ -177,7 +183,9 @@ references only; original branding. Not legal advice.
 
 ## Phase 5 roadmap (v1.0)
 
-MVP: P5.1 rename → crossfadarr + secrets audit · P5.2 in-app scan w/ progress ·
+MVP: ✅ P5.1 rename → crossfadarr + secrets audit (git repo initialized) ·
+✅ P5.2 in-app scan w/ progress (full live scan pending YTM re-auth — expired
+browser cookies surface as the actionable auth error, by design) ·
 P5.3 browser-headers auth in Settings · P5.4 Forms login · P5.5 Lidarr-read cache
 · P5.6 TheAudioDB key handling · P5.7 dockerize · P5.8 MIT + README + disclaimers ·
 P5.9 public repo + Actions → GHCR.

@@ -28,6 +28,8 @@ from difflib import SequenceMatcher
 
 import requests
 
+from fsio import write_json_atomic
+
 MB_URL = "https://musicbrainz.org/ws/2/artist/"
 USER_AGENT = "crossfadarr/0.1 (homelab companion; +https://github.com/crossfadarr/crossfadarr)"
 CACHE_DB = "mb_cache.db"
@@ -163,6 +165,36 @@ def classify(query: str, cands: list) -> dict:
     }
 
 
+def run(input_path: str = os.path.join("data", "artists.json"),
+        output_path: str = os.path.join("data", "matches.json"),
+        limit: int = 0, progress=None) -> dict:
+    """Match all candidate artists; returns a summary (incl. full results).
+
+    `progress(i, total, tiers)` is called after each artist, so the in-app scan
+    (and the CLI) can report live progress.
+    """
+    artists = json.load(open(input_path, encoding="utf-8"))
+    if limit:
+        artists = artists[:limit]
+
+    con = _cache_open()
+    results, tiers = [], {"green": 0, "amber": 0, "red": 0, "none": 0}
+    t0 = time.time()
+
+    for i, a in enumerate(artists, 1):
+        cands = mb_search(a["name"], con)
+        verdict = classify(a["name"], cands)
+        tiers[verdict["tier"]] += 1
+        results.append({**a, "match": verdict})
+        if progress:
+            progress(i, len(artists), tiers)
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    write_json_atomic(output_path, results)
+    return {"total": len(results), "tiers": tiers,
+            "elapsed": time.time() - t0, "results": results}
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -175,28 +207,15 @@ def main() -> int:
     ap.add_argument("--output", default=os.path.join("data", "matches.json"))
     args = ap.parse_args()
 
-    artists = json.load(open(args.input, encoding="utf-8"))
-    if args.limit:
-        artists = artists[: args.limit]
-
-    con = _cache_open()
-    results, tiers = [], {"green": 0, "amber": 0, "red": 0, "none": 0}
-    t0 = time.time()
-
-    for i, a in enumerate(artists, 1):
-        cands = mb_search(a["name"], con)
-        verdict = classify(a["name"], cands)
-        tiers[verdict["tier"]] += 1
-        results.append({**a, "match": verdict})
-        if i % 25 == 0 or i == len(artists):
-            print(f"  ...{i}/{len(artists)}  "
+    def _cb(i: int, total: int, tiers: dict) -> None:
+        if i % 25 == 0 or i == total:
+            print(f"  ...{i}/{total}  "
                   f"(g{tiers['green']} a{tiers['amber']} r{tiers['red']} n{tiers['none']})")
 
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    json.dump(results, open(args.output, "w", encoding="utf-8"),
-              ensure_ascii=False, indent=2)
+    summary = run(args.input, args.output, args.limit, progress=_cb)
+    tiers = summary["tiers"]
 
-    print(f"\nMatched {len(results)} artists in {time.time()-t0:.0f}s "
+    print(f"\nMatched {summary['total']} artists in {summary['elapsed']:.0f}s "
           f"-> {args.output}")
     print(f"  green (confident): {tiers['green']}")
     print(f"  amber (review)   : {tiers['amber']}")
@@ -204,7 +223,7 @@ def main() -> int:
     print(f"  none  (no match) : {tiers['none']}")
 
     print("\nSample (first 20):")
-    for a in results[:20]:
+    for a in summary["results"][:20]:
         m = a["match"]
         b = m["best"]
         label = f"{b['name']} [{b.get('disambiguation') or b.get('type') or ''}]" if b else "-"

@@ -15,6 +15,7 @@ import urllib.parse
 import yaml
 from flask import Flask, render_template_string, request, jsonify
 
+import scanner
 from lidarr import Lidarr
 
 CONFIG_PATH = "config.yaml"
@@ -33,7 +34,7 @@ def _alt_label(x: dict) -> str:
 def _load_json(path: str) -> dict:
     try:
         return json.load(open(path, encoding="utf-8"))
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
 
@@ -63,7 +64,7 @@ def _ytm_url(ytm_ids: list, name: str) -> str:
 def load_rows(existing: set) -> list[dict]:
     try:
         matches = json.load(open(LID.matches_file, encoding="utf-8"))
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return []  # pipeline not run yet
     tad = _load_json("data/artwork.json")
     ytm = _load_json("data/ytm_thumbs.json")
@@ -206,6 +207,20 @@ def api_settings():
     return jsonify({"ok": True})
 
 
+@app.route("/api/scan/start", methods=["POST"])
+def api_scan_start():
+    ok, err = scanner.start()
+    if ok:
+        return jsonify({"ok": True})
+    code = 409 if err["error_kind"] == "busy" else 400
+    return jsonify({"ok": False, **err}), code
+
+
+@app.route("/api/scan/status")
+def api_scan_status():
+    return jsonify(scanner.status())
+
+
 FAVICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
     '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
@@ -334,6 +349,15 @@ TEMPLATE = r"""
   .setupbar{background:#78350f;color:#fde68a;padding:10px 18px;font-size:14px;display:flex;align-items:center;gap:10px}
   .setupbar button{padding:5px 12px}
 
+  /* P5.2 - in-app scan progress strip */
+  .setupbar.scan{background:#1f2937;color:#cbd5e1;flex-wrap:wrap}
+  .setupbar.scan.err{background:#78350f;color:#fde68a}
+  .setupbar.scan.ok{background:#14351f;color:#86efac}
+  .scantrack{flex:1 1 160px;min-width:120px;height:6px;background:#0e1218;border-radius:999px;overflow:hidden}
+  .scanfill{height:100%;width:0%;background:var(--red);border-radius:999px;transition:width .4s}
+  .setupbar.scan.ok .scanfill{background:#22c55e}
+  #scanbtn{white-space:nowrap}
+
   /* organised control panels */
   .panels{display:flex;gap:12px;flex-wrap:wrap;padding:10px 16px 14px}
   .panel{background:#181818;border:1px solid var(--line);border-radius:12px;padding:12px 14px;flex:1 1 250px;min-width:230px}
@@ -379,6 +403,7 @@ TEMPLATE = r"""
         <b>{{counts.in_lib}}</b><span>in Lidarr <svg class="eye" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/><line class="slash" x1="4" y1="4" x2="20" y2="20"/></svg></span>
       </div>
     </div>
+    <button class="secondary" id="scanbtn" onclick="startScan()" title="Re-scan your YouTube Music library and rebuild the artist list">⟳ Refresh from YouTube Music</button>
     <span class="gear" onclick="openSettings()" title="Settings">⚙</span>
   </div>
   <div class="panels">
@@ -433,13 +458,20 @@ TEMPLATE = r"""
     </section>
   </div>
 </header>
+<div id="scanbar" class="setupbar scan" style="display:none">
+  <span id="scanmsg"></span>
+  <span id="scanstage" class="muted small"></span>
+  <div class="scantrack"><div class="scanfill" id="scanfill"></div></div>
+  <button class="secondary" id="scanretry" style="display:none" onclick="startScan()">Retry scan</button>
+  <button class="secondary" id="scanreload" style="display:none" onclick="location.reload()">Reload</button>
+</div>
 {% if not configured %}
 <div class="setupbar">⚠ Lidarr isn't configured yet. <button onclick="openSettings()">Open settings</button> to connect your Lidarr endpoint &amp; API key.</div>
 {% elif not lidarr_ok %}
 <div class="setupbar">⚠ Can't reach Lidarr at <code>{{lidarr_url}}</code> (check it's running / the API key). <button onclick="openSettings()">Settings</button></div>
 {% endif %}
 {% if total == 0 %}
-<div class="setupbar" style="background:#1f2937;color:#cbd5e1">No matched artists yet — run <code>ingest.py</code> then <code>matcher.py</code> to build <code>data/matches.json</code>.</div>
+<div class="setupbar" style="background:#1f2937;color:#cbd5e1">No matched artists yet — click <b>⟳ Refresh from YouTube Music</b> above to scan your library.</div>
 {% endif %}
 <div id="results"></div>
 <div id="items" class="cards">
@@ -639,6 +671,58 @@ async function addSelected(){
   }catch(e){ document.getElementById('results').textContent='Error: '+e; }
   btn.disabled=false; btn.textContent='Add selected'; updateCount();
 }
+// P5.2 - in-app scan: start + poll /api/scan/status, survive page reloads
+const SCAN_LABEL='⟳ Refresh from YouTube Music';
+let scanPolling=false;
+function scanUI(j){
+  const bar=document.getElementById('scanbar'), btn=document.getElementById('scanbtn');
+  if(j.state==='idle'){bar.style.display='none';btn.disabled=false;btn.textContent=SCAN_LABEL;return;}
+  bar.style.display='flex';
+  bar.classList.toggle('err',j.state==='error');
+  bar.classList.toggle('ok',j.state==='done');
+  document.getElementById('scanmsg').textContent =
+    j.state==='error' ? '⚠ '+j.error :
+    j.state==='done' ? '✓ Scan complete — reload to see updated artists' : j.message;
+  document.getElementById('scanstage').textContent =
+    j.state==='running' ? `stage ${j.stage_index}/${j.stages_total}` : '';
+  document.getElementById('scanfill').style.width=(j.state==='done'?100:(j.percent||0))+'%';
+  document.getElementById('scanretry').style.display = j.state==='error' ? '' : 'none';
+  document.getElementById('scanreload').style.display = j.state==='done' ? '' : 'none';
+  btn.disabled = j.state==='running';
+  btn.textContent = j.state==='running' ? 'Scanning…' : SCAN_LABEL;
+}
+async function pollScan(){
+  let j;
+  try{ j=await (await fetch('/api/scan/status')).json(); }
+  catch(e){ setTimeout(pollScan,3000); return; }
+  scanUI(j);
+  if(j.state==='running') setTimeout(pollScan,1500);
+  else scanPolling=false;
+}
+function startScanPolling(){ if(!scanPolling){scanPolling=true; pollScan();} }
+async function startScan(){
+  const btn=document.getElementById('scanbtn'); btn.disabled=true;
+  try{
+    const r=await fetch('/api/scan/start',{method:'POST'});
+    const j=await r.json();
+    if(!j.ok && j.error_kind!=='busy'){
+      scanUI({state:'error',error:j.error,error_kind:j.error_kind,percent:0});
+      btn.disabled=false;
+      return;
+    }
+  }catch(e){ btn.disabled=false; return; }
+  startScanPolling();
+}
+// on load: resume the progress display if a scan is running, or show a
+// still-unacknowledged error from a previous scan (done state is not re-shown —
+// a reload already serves the fresh data)
+(async()=>{
+  try{
+    const j=await (await fetch('/api/scan/status')).json();
+    if(j.state==='running') startScanPolling();
+    else if(j.state==='error') scanUI(j);
+  }catch(e){}
+})();
 updateCount();
 applyFilters();   // apply defaults (in-Lidarr hidden) on load
 // Hide the card grid during active resize so the browser doesn't reflow all

@@ -23,6 +23,8 @@ import os
 import sys
 from collections import OrderedDict
 
+from fsio import write_json_atomic
+
 DATA_DIR = "data"
 
 
@@ -84,8 +86,12 @@ class ArtistRegistry:
         )
 
 
-def ingest(auth: str) -> dict:
+def ingest(auth: str, progress=None) -> dict:
     from ytmusicapi import YTMusic
+
+    def _tick(step: int) -> None:
+        if progress:
+            progress(step, 3)
 
     yt = YTMusic(auth)
     reg = ArtistRegistry()
@@ -94,6 +100,7 @@ def ingest(auth: str) -> dict:
     lib = yt.get_library_artists(limit=None) or []
     for a in lib:
         reg.add(a.get("artist"), a.get("browseId"), "library")
+    _tick(1)
 
     # 2. Subscriptions (followed artist channels).
     try:
@@ -102,6 +109,7 @@ def ingest(auth: str) -> dict:
         subs = []
     for a in subs:
         reg.add(a.get("artist"), a.get("browseId"), "subscription")
+    _tick(2)
 
     # 3. Liked songs -> track records + artist signal.
     liked_raw = yt.get_liked_songs(limit=5000) or {}
@@ -125,13 +133,12 @@ def ingest(auth: str) -> dict:
             reg.add(x["name"], x.get("ytm_id"), "liked")
             reg.bump_liked(x["name"], x.get("ytm_id"))
 
+    _tick(3)
     artists = reg.sorted_list()
 
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(os.path.join(DATA_DIR, "artists.json"), "w", encoding="utf-8") as f:
-        json.dump(artists, f, ensure_ascii=False, indent=2)
-    with open(os.path.join(DATA_DIR, "liked.json"), "w", encoding="utf-8") as f:
-        json.dump(liked_tracks, f, ensure_ascii=False, indent=2)
+    write_json_atomic(os.path.join(DATA_DIR, "artists.json"), artists)
+    write_json_atomic(os.path.join(DATA_DIR, "liked.json"), liked_tracks)
 
     return {
         "library_artists": len(lib),

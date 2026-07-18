@@ -16,6 +16,8 @@ import time
 
 import requests
 
+from fsio import write_json_atomic
+
 API = "https://musicbrainz.org/ws/2/artist/"
 UA = "crossfadarr/0.1 (homelab companion; +https://github.com/crossfadarr/crossfadarr)"
 CACHE_DB = "genre_cache.db"
@@ -53,7 +55,8 @@ def fetch(mbid: str) -> list:
     return []
 
 
-def main() -> int:
+def run(progress=None) -> dict:
+    """Fetch genres for all matched MBIDs; `progress(i, total)` per live fetch."""
     matches = json.load(open(MATCHES, encoding="utf-8"))
     mbids, seen = [], set()
     for a in matches:
@@ -66,8 +69,8 @@ def main() -> int:
     con = sqlite3.connect(CACHE_DB)
     con.execute("CREATE TABLE IF NOT EXISTS g (mbid TEXT PRIMARY KEY, genres TEXT)")
     have = {row[0]: json.loads(row[1]) for row in con.execute("SELECT mbid, genres FROM g")}
+    cached = len(have)
     todo = [m for m in mbids if m not in have]
-    print(f"{len(mbids)} MBIDs; {len(todo)} to fetch, {len(have)} cached")
 
     for i, mb in enumerate(todo, 1):
         try:
@@ -77,13 +80,23 @@ def main() -> int:
         con.execute("INSERT OR REPLACE INTO g VALUES (?,?)", (mb, json.dumps(g)))
         con.commit()
         have[mb] = g
-        if i % 25 == 0 or i == len(todo):
-            print(f"  ...{i}/{len(todo)}")
+        if progress:
+            progress(i, len(todo))
 
     out = {mb: have.get(mb) for mb in mbids if have.get(mb)}
-    json.dump(out, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    withg = sum(1 for v in out.values() if v)
-    print(f"wrote {OUT}: {withg}/{len(mbids)} artists have a genre")
+    write_json_atomic(OUT, out)
+    return {"mbids": len(mbids), "fetched": len(todo), "cached": cached,
+            "with_genre": sum(1 for v in out.values() if v)}
+
+
+def main() -> int:
+    def _cb(i: int, total: int) -> None:
+        if i % 25 == 0 or i == total:
+            print(f"  ...{i}/{total}")
+
+    s = run(progress=_cb)
+    print(f"{s['mbids']} MBIDs; {s['fetched']} fetched, {s['cached']} cached")
+    print(f"wrote {OUT}: {s['with_genre']}/{s['mbids']} artists have a genre")
     return 0
 
 
