@@ -196,7 +196,9 @@ it), but YT Music's internal API rejects ALL OAuth Bearer tokens with HTTP 400
 cookie auth hardened — Settings now teaches the **incognito-session trick**
 (copy headers from a private window, close without logging out → cookies aren't
 rotated → lasts weeks, vs ~40 min from an active browser session) ·
-P5.4 Forms login · P5.5 Lidarr-read cache
+✅ P5.4 Forms login (optional arr-style: Settings → Security, salted hash in
+config.yaml, session gate on all routes + 401 for APIs, /login page, 30-day
+sessions; ships disabled) · P5.5 Lidarr-read cache
 · P5.6 TheAudioDB key handling · P5.7 dockerize · P5.8 MIT + README + disclaimers ·
 P5.9 public repo + Actions → GHCR.
 Later ideas: track-level (liked songs → specific albums), playlist ingestion.
