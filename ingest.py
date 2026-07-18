@@ -35,6 +35,17 @@ def _pick_auth() -> str:
     return ytm_client.find_auth() or "auth.json"
 
 
+def _best_thumb(thumbs: list | None) -> str | None:
+    """Largest thumbnail url, upgraded to 544px where the url encodes a size."""
+    if not thumbs:
+        return None
+    url = max(thumbs, key=lambda t: t.get("width", 0)).get("url")
+    if url:
+        import re
+        url = re.sub(r"=w\d+-h\d+", "=w544-h544", url)
+    return url
+
+
 def _artist_key(name: str) -> str:
     """Dedupe by normalized name.
 
@@ -52,7 +63,8 @@ class ArtistRegistry:
     def __init__(self) -> None:
         self._by_key: "OrderedDict[str, dict]" = OrderedDict()
 
-    def add(self, name: str, ytm_id: str | None, source: str) -> None:
+    def add(self, name: str, ytm_id: str | None, source: str,
+            thumb: str | None = None) -> None:
         name = (name or "").strip()
         if not name:
             return
@@ -64,12 +76,20 @@ class ArtistRegistry:
                 "ytm_ids": [],
                 "sources": [],
                 "liked_track_count": 0,
+                "thumb": None,
+                "thumb_src": None,
             }
             self._by_key[key] = entry
         if ytm_id and ytm_id not in entry["ytm_ids"]:
             entry["ytm_ids"].append(ytm_id)
         if source not in entry["sources"]:
             entry["sources"].append(source)
+        # keep the best thumb: an artist-level image (library/subscription)
+        # beats a liked track's album/video art
+        if thumb and (entry["thumb"] is None or
+                      (source != "liked" and entry["thumb_src"] == "liked")):
+            entry["thumb"] = thumb
+            entry["thumb_src"] = source
 
     def bump_liked(self, name: str, ytm_id: str | None) -> None:
         entry = self._by_key.get(_artist_key(name))
@@ -95,7 +115,8 @@ def ingest(auth: str, progress=None) -> dict:
     # 1. Library artists (already artist-level).
     lib = yt.get_library_artists(limit=None) or []
     for a in lib:
-        reg.add(a.get("artist"), a.get("browseId"), "library")
+        reg.add(a.get("artist"), a.get("browseId"), "library",
+                thumb=_best_thumb(a.get("thumbnails")))
     _tick(1)
 
     # 2. Subscriptions (followed artist channels).
@@ -104,7 +125,8 @@ def ingest(auth: str, progress=None) -> dict:
     except Exception:  # noqa: BLE001 - non-fatal, some accounts have none
         subs = []
     for a in subs:
-        reg.add(a.get("artist"), a.get("browseId"), "subscription")
+        reg.add(a.get("artist"), a.get("browseId"), "subscription",
+                thumb=_best_thumb(a.get("thumbnails")))
     _tick(2)
 
     # 3. Liked songs -> track records + artist signal.
@@ -118,6 +140,7 @@ def ingest(auth: str, progress=None) -> dict:
             if x.get("name")
         ]
         album = t.get("album") or {}
+        track_thumb = _best_thumb(t.get("thumbnails"))
         liked_tracks.append({
             "title": t.get("title"),
             "artists": artists,
@@ -126,7 +149,7 @@ def ingest(auth: str, progress=None) -> dict:
             "video_id": t.get("videoId"),
         })
         for x in artists:
-            reg.add(x["name"], x.get("ytm_id"), "liked")
+            reg.add(x["name"], x.get("ytm_id"), "liked", thumb=track_thumb)
             reg.bump_liked(x["name"], x.get("ytm_id"))
 
     _tick(3)

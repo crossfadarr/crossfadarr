@@ -22,9 +22,11 @@ from flask import Flask, render_template_string, request, jsonify
 import scanner
 import ytm_client
 from curl_to_auth import curl_to_headers_raw
+from fsio import write_json_atomic
 from lidarr import Lidarr
 
 CONFIG_PATH = "config.yaml"
+ADDED_LOG = os.path.join("data", "added_log.json")
 
 app = Flask(__name__)
 LID = Lidarr()
@@ -95,6 +97,9 @@ def load_rows(existing: set) -> list[dict]:
             seen.add(mbid)
         alts = ([best] if best else []) + (m.get("alternates") or [])
         art = (tad.get(mbid) or ytm.get(mbid)) if mbid else None
+        # last resort: the thumbnail YTM itself showed for this artist/track
+        # (captured free during ingest; covers channels get_artist chokes on)
+        art = art or a.get("thumb")
         rows.append({
             "ytm_name": a["name"],
             "sources": a.get("sources", []),
@@ -162,16 +167,39 @@ def add():
     monitored = bool(data.get("monitored", True))
     search = bool(data.get("search", True))
     monitor_new = data.get("monitor_new", "all")
+    items = data.get("items", [])
     results = [
         LID.add_artist(it["mbid"], root, qp, mp, monitored, search, monitor_new)
-        for it in data.get("items", [])
+        for it in items
     ]
     summary = {
         "added": sum(r["status"] == "added" for r in results),
         "exists": sum(r["status"] == "exists" for r in results),
         "error": sum(r["status"] == "error" for r in results),
     }
+    # P5.12 - persistent add history (data/added_log.json, git-ignored):
+    # Lidarr files artists under the MB canonical name (often native script),
+    # so keep the YTM name alongside for findability.
+    ytm_names = {it["mbid"]: it.get("name", "") for it in items}
+    try:
+        log = json.load(open(ADDED_LOG, encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        log = []
+    ts = time.strftime("%Y-%m-%d %H:%M")
+    log += [{"ts": ts, "ytm_name": ytm_names.get(r["mbid"], ""),
+             "lidarr_name": r.get("name"), "mbid": r["mbid"],
+             "status": r["status"], "msg": r.get("msg")} for r in results]
+    write_json_atomic(ADDED_LOG, log)
     return jsonify({"summary": summary, "results": results})
+
+
+@app.route("/api/added")
+def api_added():
+    try:
+        log = json.load(open(ADDED_LOG, encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        log = []
+    return jsonify(log[::-1])  # newest first
 
 
 @app.route("/api/test", methods=["POST"])
@@ -543,6 +571,11 @@ TEMPLATE = r"""
   .sheet textarea{width:100%;background:#0e1218;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-family:ui-monospace,Consolas,monospace;font-size:12px;resize:vertical}
   .hint{font-size:12.5px;color:var(--mut);margin-top:7px;line-height:1.6}
   .hint a{color:#93b4e6;text-decoration:underline}
+  .histwrap{max-height:60vh;overflow-y:auto}
+  .histwrap table{width:100%;border-collapse:collapse;font-size:13px}
+  .histwrap th{text-align:left;color:var(--mut);font-weight:500;font-size:12px;padding:4px 10px 6px 0;border-bottom:1px solid var(--line)}
+  .histwrap td{padding:6px 10px 6px 0;border-bottom:1px solid #1b1b1b;vertical-align:top}
+  .histwrap .st-added{color:#86efac}.histwrap .st-exists{color:#cbd5e1}.histwrap .st-error{color:#fca5a5}
   .authbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
   .authbox .meth{font-weight:700;font-size:13.5px}
   .oacode{user-select:all;cursor:pointer;background:#0e1218;border:1px solid var(--line);border-radius:6px;padding:3px 10px;font-family:ui-monospace,Consolas,monospace;font-size:16px;letter-spacing:2px}
@@ -659,6 +692,7 @@ TEMPLATE = r"""
       <div class="frow">
         <button class="secondary" onclick="checkVisible(true)">select visible</button>
         <button class="secondary" onclick="checkVisible(false)">clear</button>
+        <button class="secondary" onclick="openHistory()" title="Everything added to Lidarr from here">History</button>
         <button id="addbtn" onclick="addSelected()">Add selected (<span id="selcount">0</span>)</button>
       </div>
     </section>
@@ -704,6 +738,14 @@ TEMPLATE = r"""
     </div>
   </div>
 {% endfor %}
+</div>
+
+<div id="history" class="modal" style="display:none" onclick="if(event.target===this)closeHistory()">
+  <div class="sheet">
+    <h3>Add history</h3>
+    <div id="histbody" class="histwrap"><span class="muted">loading…</span></div>
+    <div class="foot"><button class="secondary" type="button" onclick="closeHistory()">Close</button></div>
+  </div>
 </div>
 
 <div id="settings" class="modal" style="display:none">
@@ -780,6 +822,21 @@ TEMPLATE = r"""
 
 <script>
 function items(){return Array.from(document.querySelectorAll('#items .item'));}
+function closeHistory(){document.getElementById('history').style.display='none';}
+async function openHistory(){
+  document.getElementById('history').style.display='flex';
+  const box=document.getElementById('histbody');
+  try{
+    const log=await (await fetch('/api/added')).json();
+    if(!log.length){box.innerHTML='<span class="muted">Nothing added from here yet.</span>';return;}
+    const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    box.innerHTML='<table><tr><th>when</th><th>YTM name</th><th>in Lidarr as</th><th>result</th></tr>'+
+      log.map(e=>`<tr><td class="muted">${esc(e.ts)}</td><td>${esc(e.ytm_name)}</td>`+
+        `<td>${esc(e.lidarr_name)||'—'}</td>`+
+        `<td class="st-${esc(e.status)}">${esc(e.status)}${e.msg?' — '+esc(e.msg):''}</td></tr>`).join('')+
+      '</table>';
+  }catch(e){box.innerHTML='<span class="err">Could not load history: '+e+'</span>';}
+}
 function openSettings(){document.getElementById('settings').style.display='flex';}
 function closeSettings(){document.getElementById('settings').style.display='none';}
 function togglekey(){const k=document.getElementById('s_key');k.type=k.type==='password'?'text':'password';}
@@ -968,7 +1025,8 @@ async function addSelected(){
     if(c && c.checked){
       const sel=it.querySelector('.mbsel');
       const mbid = sel ? sel.value : it.dataset.mbid;
-      if(mbid) picked.push({mbid, name: it.dataset.name, el: it});
+      const nm = (it.querySelector('.name')||{}).textContent || it.dataset.name;
+      if(mbid) picked.push({mbid, name: nm.trim(), el: it});
     }
   });
   if(!picked.length){alert('Nothing selected');return;}
