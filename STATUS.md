@@ -207,7 +207,10 @@ matches — e.g. Utada/Uematsu were matched to wrong MB entities) · ✅ P5.12 a
 history + ingest-thumb art (100% card art) · ✅ P5.13/P5.14 metadata help +
 monitor/search guard · **Functionally complete for v1.0.** ·
 ✅ P5.8 OSS scaffolding (MIT LICENSE + public README with honest auth story +
-disclaimers; screenshots still needed before publish) · Remaining: P5.7 dockerize
+disclaimers; screenshots still needed before publish) · ✅ P5.7 dockerized
+(multi-stage python:3.12-slim, non-root uid 1000, single /config volume =
+the app's cwd, waitress server, healthcheck on /favicon.svg, compose.yaml;
+verified live on popos) · Remaining: **P5.9 publish only**
 (moved last, 2026-07-18 — pairs with the GHCR publish) · P5.9 public repo +
 Actions → GHCR.
 Later ideas: track-level (liked songs → specific albums), playlist ingestion.
