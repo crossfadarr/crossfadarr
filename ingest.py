@@ -23,6 +23,7 @@ import os
 import sys
 from collections import OrderedDict
 
+import ytm_client
 from fsio import write_json_atomic
 
 DATA_DIR = "data"
@@ -31,10 +32,7 @@ DATA_DIR = "data"
 def _pick_auth() -> str:
     if len(sys.argv) > 1:
         return sys.argv[1]
-    for cand in ("auth.json", "browser.json", "oauth.json"):
-        if os.path.exists(cand):
-            return cand
-    return "auth.json"
+    return ytm_client.find_auth() or "auth.json"
 
 
 def _artist_key(name: str) -> str:
@@ -87,13 +85,11 @@ class ArtistRegistry:
 
 
 def ingest(auth: str, progress=None) -> dict:
-    from ytmusicapi import YTMusic
-
     def _tick(step: int) -> None:
         if progress:
             progress(step, 3)
 
-    yt = YTMusic(auth)
+    yt = ytm_client.build(auth)
     reg = ArtistRegistry()
 
     # 1. Library artists (already artist-level).

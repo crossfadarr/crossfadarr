@@ -9,7 +9,6 @@ important one being expired YTM auth, which gets an actionable message.
 """
 from __future__ import annotations
 
-import os
 import threading
 import time
 
@@ -17,6 +16,7 @@ import artwork
 import genres
 import ingest
 import matcher
+import ytm_client
 import ytm_thumbs
 
 _LOCK = threading.Lock()
@@ -45,16 +45,12 @@ STAGES = [
 _WEIGHT_TOTAL = sum(s[2] for s in STAGES)
 
 AUTH_HELP = ("YouTube Music auth is missing or expired. Open ⚙ Settings → "
-             "YouTube Music auth and paste fresh headers (Copy as cURL (bash) "
-             "from a logged-in music.youtube.com /browse request), then retry "
-             "the scan.")
+             "YouTube Music auth and connect with OAuth (recommended — it "
+             "auto-renews), or paste fresh browser headers, then retry the scan.")
 
 
 def _find_auth() -> str | None:
-    for c in ("auth.json", "browser.json", "oauth.json"):
-        if os.path.exists(c):
-            return c
-    return None
+    return ytm_client.find_auth()
 
 
 def _is_auth_error(e: Exception) -> bool:

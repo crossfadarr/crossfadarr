@@ -16,6 +16,7 @@ import sqlite3
 import sys
 import time
 
+import ytm_client
 from fsio import write_json_atomic
 
 MATCHES = os.path.join("data", "matches.json")
@@ -25,17 +26,10 @@ CACHE_DB = "ytm_thumb_cache.db"
 INTERVAL = 0.3
 
 
-def _default_auth() -> str:
-    for c in ("auth.json", "browser.json", "oauth.json"):
-        if os.path.exists(c):
-            return c
-    return "auth.json"
-
-
 def _pick_auth() -> str:
     if len(sys.argv) > 1:
         return sys.argv[1]
-    return _default_auth()
+    return ytm_client.find_auth() or "auth.json"
 
 
 def _largest(thumbs: list) -> str | None:
@@ -46,8 +40,7 @@ def _largest(thumbs: list) -> str | None:
 
 def run(auth_path: str | None = None, progress=None) -> dict:
     """Fetch YTM fallback thumbs; `progress(i, total)` per target artist."""
-    from ytmusicapi import YTMusic
-    yt = YTMusic(auth_path or _default_auth())
+    yt = ytm_client.build(auth_path)
 
     matches = json.load(open(MATCHES, encoding="utf-8"))
     tad = json.load(open(ART, encoding="utf-8")) if os.path.exists(ART) else {}

@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.parse
+from pathlib import Path
 
 import yaml
 from flask import Flask, render_template_string, request, jsonify
 
 import scanner
+import ytm_client
 from curl_to_auth import curl_to_headers_raw
 from lidarr import Lidarr
 
@@ -65,10 +68,11 @@ def _ytm_url(ytm_ids: list, name: str) -> str:
 
 
 def _ytm_auth_state() -> str:
-    for c in ("auth.json", "browser.json", "oauth.json"):
+    for c in ytm_client.AUTH_CANDIDATES:
         if os.path.exists(c):
             days = int((time.time() - os.path.getmtime(c)) / 86400)
-            return f"{c} · updated {'today' if days < 1 else f'{days}d ago'}"
+            kind = "OAuth" if c == ytm_client.OAUTH_FILE else "browser headers"
+            return f"{kind} ({c}) · updated {'today' if days < 1 else f'{days}d ago'}"
     return "not set up"
 
 
@@ -144,6 +148,8 @@ def index():
         lidarr_url=LID.url, lidarr_key=LID.key,
         configured=LID.configured, lidarr_ok=lidarr_ok,
         ytm_auth_state=_ytm_auth_state(),
+        ytm_client_id=(ytm_client.client_creds() or ("", ""))[0],
+        ytm_client_secret=(ytm_client.client_creds() or ("", ""))[1],
     )
 
 
@@ -216,6 +222,136 @@ def api_settings():
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
     LID = Lidarr()  # reload with new settings
+    return jsonify({"ok": True})
+
+
+# ---- P5.10: YTM OAuth device flow -------------------------------------------
+# In-memory flow state, same single-user pattern as the scanner.
+
+_OAUTH_LOCK = threading.Lock()
+OAUTH_FLOW = {"state": "idle",  # idle | pending | done | error
+              "user_code": None, "verification_url": None, "error": None}
+
+
+def _oauth_set(**kw) -> None:
+    with _OAUTH_LOCK:
+        OAUTH_FLOW.update(kw)
+
+
+def _save_ytm_creds(client_id: str, client_secret: str) -> None:
+    try:
+        cfg = yaml.safe_load(open(CONFIG_PATH, encoding="utf-8")) or {}
+    except FileNotFoundError:
+        cfg = {}
+    ytm = cfg.setdefault("ytm", {})
+    ytm["client_id"] = client_id
+    ytm["client_secret"] = client_secret
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
+
+
+def _oauth_worker(creds, device_code: str, interval: float, expires_at: float) -> None:
+    from ytmusicapi.auth.oauth import RefreshingToken
+    while True:
+        with _OAUTH_LOCK:
+            if OAUTH_FLOW["state"] != "pending":
+                return  # cancelled
+        if time.time() > expires_at:
+            _oauth_set(state="error", error="the code expired before it was "
+                                            "entered — click Connect again")
+            return
+        time.sleep(interval)
+        try:
+            raw = creds.token_from_code(device_code)
+        except Exception as e:  # noqa: BLE001
+            _oauth_set(state="error", error=str(e)[:300])
+            return
+        if raw.get("access_token"):
+            break
+        err = raw.get("error")
+        if err in (None, "authorization_pending"):
+            continue
+        if err == "slow_down":
+            interval += 5
+            continue
+        if err == "access_denied":
+            _oauth_set(state="error", error="the request was declined in Google "
+                                            "— click Connect to try again")
+        else:
+            _oauth_set(state="error", error=f"Google error: {err}")
+        return
+
+    try:
+        # Mirror RefreshingToken.prompt_for_token's construction.
+        tok = RefreshingToken(
+            credentials=creds,
+            access_token=raw["access_token"],
+            refresh_token=raw["refresh_token"],
+            scope=raw["scope"],
+            token_type=raw["token_type"],
+            expires_in=raw.get("refresh_token_expires_in", raw["expires_in"]),
+        )
+        tok.update(raw)
+        tok.local_cache = Path(ytm_client.OAUTH_FILE)  # writes oauth.json
+        # Same signed-in canary as the browser-headers path.
+        ytm_client.build(ytm_client.OAUTH_FILE).get_liked_songs(limit=1)
+    except Exception as e:  # noqa: BLE001
+        try:
+            os.remove(ytm_client.OAUTH_FILE)
+        except OSError:
+            pass
+        _oauth_set(state="error", error="Google connected but the YT Music "
+                                        f"check failed: {str(e)[:200]}")
+        return
+    scanner.clear_error()
+    _oauth_set(state="done", error=None)
+
+
+@app.route("/api/ytm/oauth/start", methods=["POST"])
+def api_oauth_start():
+    d = request.get_json(force=True)
+    cid = (d.get("client_id") or "").strip()
+    cs = (d.get("client_secret") or "").strip()
+    if not cid or not cs:
+        return jsonify({"ok": False, "error": "client ID and client secret are required"})
+    with _OAUTH_LOCK:
+        if OAUTH_FLOW["state"] == "pending":
+            return jsonify({"ok": False, "error": "a connect attempt is already running"})
+    from ytmusicapi.auth.oauth import OAuthCredentials
+    creds = OAuthCredentials(client_id=cid, client_secret=cs)
+    try:
+        code = creds.get_code()
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)[:300]
+        if "OAuth client failure" in msg or "invalid_client" in msg.lower():
+            msg = ("Google rejected the client — check the ID and secret, that the "
+                   "client type is “TVs and Limited Input devices”, and that "
+                   "YouTube Data API v3 is enabled on the project")
+        return jsonify({"ok": False, "error": msg})
+    _save_ytm_creds(cid, cs)
+    _oauth_set(state="pending", user_code=code["user_code"],
+               verification_url=code["verification_url"], error=None)
+    threading.Thread(
+        target=_oauth_worker,
+        args=(creds, code["device_code"], float(code.get("interval", 5)),
+              time.time() + float(code.get("expires_in", 1800))),
+        daemon=True).start()
+    return jsonify({"ok": True, "user_code": code["user_code"],
+                    "verification_url": code["verification_url"]})
+
+
+@app.route("/api/ytm/oauth/status")
+def api_oauth_status():
+    with _OAUTH_LOCK:
+        st = dict(OAUTH_FLOW)
+    st["ok"] = True
+    st["auth_state"] = _ytm_auth_state()
+    return jsonify(st)
+
+
+@app.route("/api/ytm/oauth/cancel", methods=["POST"])
+def api_oauth_cancel():
+    _oauth_set(state="idle", user_code=None, verification_url=None, error=None)
     return jsonify({"ok": True})
 
 
@@ -400,6 +536,8 @@ TEMPLATE = r"""
   .sheet textarea{width:100%;background:#0e1218;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-family:ui-monospace,Consolas,monospace;font-size:12px;resize:vertical}
   .hint{font-size:12.5px;color:var(--mut);margin-top:7px;line-height:1.6}
   .hint a{color:#93b4e6;text-decoration:underline}
+  .authbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+  .authbox .meth{font-weight:700;font-size:13.5px}
   .sheet .inline{display:flex;gap:8px;align-items:center}
   .sheet hr{border:0;border-top:1px solid var(--line);margin:16px 0}
   .sheet .foot{display:flex;gap:10px;align-items:center;margin-top:16px}
@@ -589,11 +727,36 @@ TEMPLATE = r"""
     </select>
     <hr>
     <label>YouTube Music auth <span class="muted" id="ytm_state">· {{ytm_auth_state}}</span></label>
-    <textarea id="ytm_raw" rows="5" placeholder="Paste raw request headers or a &quot;Copy as cURL (bash)&quot; command here"></textarea>
-    <div class="hint"><a href="https://music.youtube.com" target="_blank" rel="noopener">music.youtube.com</a> (logged in) → F12 → Network → filter “browse” → right-click a POST /browse request → Copy → <b>Copy as cURL (bash)</b> → paste above. Validated before saving; nothing is stored if it fails.</div>
-    <div class="inline" style="margin-top:8px">
-      <button class="secondary" type="button" id="ytm_save" onclick="saveYtmAuth()">Save YTM auth</button>
-      <span id="ytm_msg"></span>
+
+    <div class="authbox">
+      <div class="meth">OAuth <span class="muted">(recommended — renews itself; needs your own free Google Cloud client)</span></div>
+      <div class="inline" style="margin-top:8px">
+        <input id="oa_id" type="text" placeholder="OAuth client ID" value="{{ytm_client_id}}">
+      </div>
+      <div class="inline" style="margin-top:8px">
+        <input id="oa_secret" type="password" placeholder="OAuth client secret" value="{{ytm_client_secret}}">
+      </div>
+      <div class="inline" style="margin-top:8px">
+        <button class="secondary" type="button" id="oa_btn" onclick="oauthConnect()">Connect to YouTube Music</button>
+        <span id="oa_msg"></span>
+      </div>
+      <div id="oa_code" style="display:none;margin-top:10px;font-size:14px">
+        Go to <a id="oa_link" href="" target="_blank" rel="noopener" style="color:#93b4e6"></a>
+        and enter code <b id="oa_user_code" style="letter-spacing:1px"></b>
+        <span class="muted">— waiting for approval…</span>
+        <button class="secondary" type="button" style="margin-left:8px;padding:3px 10px" onclick="oauthCancel()">Cancel</button>
+      </div>
+      <div class="hint"><a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a> → new project → enable <b>YouTube Data API v3</b> → OAuth consent screen: publish to <b>Production</b> (Testing tokens die after 7 days) → Credentials → Create OAuth client ID → type <b>TVs and Limited Input devices</b> → copy ID + secret above. One-time, ~5 min.</div>
+    </div>
+
+    <div class="authbox">
+      <div class="meth">Browser headers <span class="muted">(quick fallback — expires within days)</span></div>
+      <textarea id="ytm_raw" rows="4" placeholder="Paste raw request headers or a &quot;Copy as cURL (bash)&quot; command here" style="margin-top:8px"></textarea>
+      <div class="hint"><a href="https://music.youtube.com" target="_blank" rel="noopener">music.youtube.com</a> (logged in) → F12 → Network → filter “browse” → right-click a POST /browse request → Copy → <b>Copy as cURL (bash)</b> → paste above. Validated before saving; nothing is stored if it fails.</div>
+      <div class="inline" style="margin-top:8px">
+        <button class="secondary" type="button" id="ytm_save" onclick="saveYtmAuth()">Save YTM auth</button>
+        <span id="ytm_msg"></span>
+      </div>
     </div>
     <div class="foot">
       <button type="button" onclick="saveSettings()">Save</button>
@@ -630,6 +793,62 @@ async function saveSettings(){
     else{m.className='err';m.textContent='✗ '+j.error;}
   }catch(e){m.className='err';m.textContent='✗ '+e;}
 }
+// P5.10 - OAuth device flow: connect, show code, poll until approved
+let oaPolling=false;
+function oaUI(st){
+  const btn=document.getElementById('oa_btn'), msg=document.getElementById('oa_msg'),
+        code=document.getElementById('oa_code');
+  if(st.state==='pending'){
+    btn.disabled=true; msg.textContent=''; code.style.display='block';
+    const a=document.getElementById('oa_link');
+    a.href=st.verification_url+'?user_code='+encodeURIComponent(st.user_code);
+    a.textContent=st.verification_url.replace('https://','');
+    document.getElementById('oa_user_code').textContent=st.user_code;
+  }else{
+    btn.disabled=false; code.style.display='none';
+    if(st.state==='done'){
+      msg.className='ok'; msg.textContent='✓ connected — OAuth will renew itself';
+      document.getElementById('ytm_state').textContent='· '+st.auth_state;
+    }else if(st.state==='error'){ msg.className='err'; msg.textContent='✗ '+st.error; }
+    else{ msg.textContent=''; }
+  }
+}
+async function oaPoll(){
+  let st;
+  try{ st=await (await fetch('/api/ytm/oauth/status')).json(); }
+  catch(e){ setTimeout(oaPoll,4000); return; }
+  oaUI(st);
+  if(st.state==='pending') setTimeout(oaPoll,3000);
+  else{
+    oaPolling=false;
+    if(st.state==='done'){ const s=await (await fetch('/api/scan/status')).json(); scanUI(s); }
+  }
+}
+function oaStartPolling(){ if(!oaPolling){oaPolling=true; oaPoll();} }
+async function oauthConnect(){
+  const msg=document.getElementById('oa_msg'), btn=document.getElementById('oa_btn');
+  msg.className=''; msg.textContent='contacting Google…'; btn.disabled=true;
+  try{
+    const r=await fetch('/api/ytm/oauth/start',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({client_id:document.getElementById('oa_id').value,
+                           client_secret:document.getElementById('oa_secret').value})});
+    const j=await r.json();
+    if(!j.ok){ msg.className='err'; msg.textContent='✗ '+j.error; btn.disabled=false; return; }
+    oaUI({state:'pending',user_code:j.user_code,verification_url:j.verification_url});
+    oaStartPolling();
+  }catch(e){ msg.className='err'; msg.textContent='✗ '+e; btn.disabled=false; }
+}
+async function oauthCancel(){
+  await fetch('/api/ytm/oauth/cancel',{method:'POST'});
+  oaUI({state:'idle'});
+}
+// resume a pending device-code flow if settings is reopened / page reloaded
+(async()=>{
+  try{
+    const st=await (await fetch('/api/ytm/oauth/status')).json();
+    if(st.state==='pending'){ oaUI(st); oaStartPolling(); }
+  }catch(e){}
+})();
 async function saveYtmAuth(){
   const m=document.getElementById('ytm_msg'); m.textContent='validating…'; m.className='';
   const btn=document.getElementById('ytm_save'); btn.disabled=true;
