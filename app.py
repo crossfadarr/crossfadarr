@@ -319,8 +319,14 @@ def api_test():
         t = Lidarr(url=url, api_key=key)
         if not t.ping():
             return jsonify({"ok": False, "error": "connection/auth failed"})
-        return jsonify({"ok": True, "artists": len(t.existing_mbids()),
-                        "rootfolders": len(t.rootfolders())})
+        # Return the actual lists so the sheet's default-pickers populate
+        # immediately on first run (before anything is saved).
+        return jsonify({
+            "ok": True, "artists": len(t.existing_mbids()),
+            "rootfolders": [{"path": r.get("path")} for r in t.rootfolders()],
+            "qps": [{"id": q["id"], "name": q.get("name")} for q in t.quality_profiles()],
+            "mps": [{"id": m["id"], "name": m.get("name")} for m in t.metadata_profiles()],
+        })
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": str(e)[:200]})
 
@@ -1041,13 +1047,26 @@ async function openHistory(){
 function openSettings(){document.getElementById('settings').style.display='flex';}
 function closeSettings(){document.getElementById('settings').style.display='none';}
 function togglekey(){const k=document.getElementById('s_key');k.type=k.type==='password'?'text':'password';}
+function fillSelect(id, pairs){
+  // repopulate a select, keeping the current choice when it still exists
+  const el=document.getElementById(id); if(!el) return;
+  const cur=el.value, esc=t=>String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  el.innerHTML=pairs.map(([v,t])=>`<option value="${esc(v)}">${esc(t)}</option>`).join('');
+  if(pairs.some(([v])=>String(v)===cur)) el.value=cur;
+}
 async function testConn(){
   const s=document.getElementById('s_test'); s.textContent='testing…'; s.className='';
   try{
     const r=await fetch('/api/test',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({url:document.getElementById('s_url').value,key:document.getElementById('s_key').value})});
     const j=await r.json();
-    if(j.ok){s.className='ok';s.textContent=`✓ connected · ${j.artists} artists · ${j.rootfolders} root folder(s)`;}
+    if(j.ok){
+      s.className='ok';s.textContent=`✓ connected · ${j.artists} artists · ${j.rootfolders.length} root folder(s)`;
+      // first-run UX: the default pickers fill straight from the test result
+      fillSelect('s_root', j.rootfolders.map(r=>[r.path,r.path]));
+      fillSelect('s_qp', j.qps.map(q=>[q.id,q.name]));
+      fillSelect('s_mp', j.mps.map(m=>[m.id,m.name]));
+    }
     else{s.className='err';s.textContent='✗ '+j.error;}
   }catch(e){s.className='err';s.textContent='✗ '+e;}
 }
