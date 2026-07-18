@@ -186,7 +186,9 @@ references only; original branding. Not legal advice.
 MVP: ✅ P5.1 rename → crossfadarr + secrets audit (git repo initialized) ·
 ✅ P5.2 in-app scan w/ progress (full live scan pending YTM re-auth — expired
 browser cookies surface as the actionable auth error, by design) ·
-P5.3 browser-headers auth in Settings · P5.4 Forms login · P5.5 Lidarr-read cache
+✅ P5.3 YTM auth in Settings (paste headers / Copy-as-cURL → validated against a
+live liked-songs call before auth.json is replaced; scan errors link here) ·
+P5.4 Forms login · P5.5 Lidarr-read cache
 · P5.6 TheAudioDB key handling · P5.7 dockerize · P5.8 MIT + README + disclaimers ·
 P5.9 public repo + Actions → GHCR.
 Fast-follow: P5.10 YTM OAuth device-flow.
