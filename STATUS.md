@@ -184,8 +184,8 @@ references only; original branding. Not legal advice.
 ## Phase 5 roadmap (v1.0)
 
 MVP: ✅ P5.1 rename → crossfadarr + secrets audit (git repo initialized) ·
-✅ P5.2 in-app scan w/ progress (full live scan pending YTM re-auth — expired
-browser cookies surface as the actionable auth error, by design) ·
+✅ P5.2 in-app scan w/ progress (live-verified end-to-end 2026-07-18: YTM →
+316 artists in ~5 s on warm caches) ·
 ✅ P5.3 YTM auth in Settings (paste headers / Copy-as-cURL → validated against a
 live liked-songs call before auth.json is replaced; scan errors link here) ·
 P5.4 Forms login · P5.5 Lidarr-read cache
