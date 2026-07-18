@@ -200,7 +200,8 @@ rotated → lasts weeks, vs ~40 min from an active browser session) ·
 config.yaml, session gate on all routes + 401 for APIs, /login page, 30-day
 sessions; ships disabled) · ✅ P5.6 TheAudioDB key user-supplied (optional Settings field; keyless installs
 skip the stage and use YTM images — still 100% card art via ingest thumbs) ·
-P5.5 Lidarr-read cache · P5.8 MIT + README + disclaimers · P5.7 dockerize
+✅ P5.5 Lidarr-read cache (TTL 60s artists / 10min profiles, invalidated on
+add + settings save) · P5.8 MIT + README + disclaimers · P5.7 dockerize
 (moved last, 2026-07-18 — pairs with the GHCR publish) · P5.9 public repo +
 Actions → GHCR.
 Later ideas: track-level (liked songs → specific albums), playlist ingestion.
