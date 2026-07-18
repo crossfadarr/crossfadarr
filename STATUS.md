@@ -22,7 +22,7 @@ Last updated: 2026-07-18.
 | 2 · Ingest YTM library | ✅ Done |
 | 3 · MusicBrainz matcher | ✅ Done |
 | 4 · Review UI + Lidarr push | ✅ Done (+ 8 polish rounds) |
-| 5 · v1.0 public release | 🔜 Planned (MVP-first) |
+| 5 · v1.0 public release | ✅ **Shipped 2026-07-18** — github.com/crossfadarr/crossfadarr, image on GHCR |
 
 The MVP is functionally complete and proven end-to-end against a real library
 (YTM → 316 candidate artists → MusicBrainz → review UI → Lidarr). Push verified
