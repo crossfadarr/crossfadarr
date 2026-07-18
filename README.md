@@ -1,65 +1,161 @@
 # Crossfadarr
 
-*Crossfade + arr* — get your **YouTube Music** favourites/library into **Lidarr**. A
-Lidify-style flow, but sourced from your *own* YT Music account (liked songs,
-library/subscribed artists, playlists) rather than existing-library recommendations.
+*Crossfade + arr.* A self-hosted web app that reads **your own YouTube Music
+library** — liked songs, saved artists, subscriptions — and helps you add those
+artists to **[Lidarr](https://lidarr.audio/)**.
 
-Standalone companion app: reads YT Music via `ytmusicapi`, matches to MusicBrainz, and
-pushes artists/albums into Lidarr over its API. It deliberately owns the fragile YT Music
-auth so nothing else has to.
+Think of it as a Lidify-style review grid, but sourced from what you actually
+listen to on YouTube Music rather than recommendations derived from your
+existing library.
 
-> Tracked in Vikunja: project **"YT Music → Lidarr Importer"** (Homelab → id 12).
-> Background/decision trail: Lidarr declined this natively (Lidarr#5745, not_planned);
-> the official YouTube Data API can't read the private library, so `ytmusicapi` is the
-> only path — see the spike notes on board task #3.
+<!-- screenshot: add docs/screenshot.png before publishing -->
 
-## Why this exists / the one hard constraint
+**What it is:** a metadata and library-management bridge. It reads your YTM
+account, matches artists to MusicBrainz, and adds the ones you pick to Lidarr
+via Lidarr's own API.
 
-The official YouTube Data API v3 **does not expose** your private YT Music library
-(liked songs, library artists). The **only** thing that can is the unofficial
-`ytmusicapi`, which authenticates by reusing your browser session headers, or via a
-self-provisioned Google Cloud "TV device" OAuth client. That auth is the project's main
-risk — so we prove it works **before** building anything on top.
+**What it is not:** a downloader. Crossfadarr downloads no music, talks to no
+indexers or torrents, and circumvents nothing. What Lidarr does after an artist
+is added is Lidarr's business, configured by you, in Lidarr.
 
-## Phase 1 — prove auth (do this first)
+## Features
 
-This is the gate. Run it against your real account; if it returns real data, we proceed.
+- **One-click scan** — "⟳ Refresh from YouTube Music" runs the whole pipeline
+  in-app with a live progress bar (ingest → MusicBrainz match → artwork →
+  genres). Results are cached, so only the first scan is slow.
+- **Three signals from YTM**: artists whose music you *saved* (library),
+  artist channels you *follow* (subscriptions), and artists from your
+  *thumbed-up* songs (liked).
+- **Careful matching** — MusicBrainz search that is alias- and Unicode-aware
+  (essential for native-script artists: 澤野弘之 = Hiroyuki Sawano), with
+  match-confidence dots and an alternates dropdown to fix any misses by hand.
+- **Honest flags** — artists MusicBrainz lists *no releases* for are badged
+  and excluded from bulk selection (adding them would create an empty Lidarr
+  artist; it usually also means the match hit a bootleg or placeholder entry).
+- **Review before anything happens** — search, filters (confidence, source,
+  type, genre), card/list views, circular artwork with a YTM play link.
+  Nothing is sent to Lidarr until you tick artists and click *Add selected*.
+- **Lidarr-aware** — dedupes against what's already in your library, shows an
+  "in Lidarr" count, respects your root folder / quality / metadata profiles,
+  monitor and search options, and keeps a history log of every add.
+- **Optional login** — arr-style Forms authentication (salted password hash),
+  off by default for LAN use.
+
+## Requirements
+
+- Python 3.11+
+- A [Lidarr](https://lidarr.audio/) instance and its API key
+- A YouTube Music account
+- Optional: a [TheAudioDB](https://www.theaudiodb.com/) API key for artist
+  portraits (without one, artwork comes from YouTube Music's own images)
+
+## Quick start
 
 ```bash
+git clone https://github.com/crossfadarr/crossfadarr.git
 cd crossfadarr
-python -m venv .venv && . .venv/Scripts/activate      # Windows; use .venv/bin/activate on mac/Linux
-pip install -r requirements.txt
-
-# Authenticate (browser method is easiest). Either:
-ytmusicapi browser                 # built-in CLI, writes browser.json
-# ...or:
-python auth_setup.py browser       # paste headers, writes auth.json
-
-# Verify it can read your PRIVATE library:
-python smoke_test.py               # auto-finds auth.json / browser.json
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt     # Windows
+# .venv/bin/pip install -r requirements.txt       # macOS / Linux
+.venv/Scripts/python app.py                       # -> http://127.0.0.1:5000
 ```
 
-Expected: non-zero counts for **library artists** and **liked songs**, plus a few real
-names, ending in `RESULT: PASS`. That confirms the whole approach and unblocks Phase 2.
+Then, in the app:
 
-**Security:** your auth file (`auth.json` / `browser.json`) stays on your machine and is
-git-ignored. Claude never sees it — only the smoke-test counts.
+1. **⚙ Settings** → enter your Lidarr URL + API key → *Test connection* → Save.
+2. **⚙ Settings → YouTube Music auth** → paste your browser headers (see below).
+3. Click **⟳ Refresh from YouTube Music** and let the scan run. The first scan
+   takes several minutes (MusicBrainz allows ~1 request/second); re-scans take
+   seconds.
+4. Review, tick, **Add selected**.
 
-## Roadmap (Vikunja subtasks under board #2)
+A Docker image is planned — until then it runs anywhere Python does.
 
-1. **Phase 1** — prove `ytmusicapi` auth *(this kit)* ← you are here
-2. **Phase 2** — ingest library artists / liked songs / playlists → normalized
-3. **Phase 3** — MusicBrainz matcher (SQLite cache, ~1 req/s throttle, confidence)
-4. **Phase 4** — review UI + push to Lidarr (`/api/v1/artist`, `/api/v1/album` + search)
-5. **Phase 5** — dockerize + deploy to `/opt/stacks/arr` on pop-os (.54)
+## YouTube Music authentication (read this)
 
-**MVP first slice:** library/subscribed artists → artist-level add only (skips track
-matching entirely — the low-risk path to something useful).
+Google offers **no official API** for reading your private YouTube Music
+library, so Crossfadarr uses [ytmusicapi](https://github.com/sigma67/ytmusicapi),
+which authenticates by reusing your browser session cookies. This is the
+fragile part of the whole exercise, and it's worth two minutes of reading:
 
-## Files
+**How to connect:**
 
-| File | Purpose |
-|---|---|
-| `auth_setup.py` | Create the `ytmusicapi` auth file (browser or oauth). You run it. |
-| `smoke_test.py` | Phase 1 gate — confirm the private library is readable. |
-| `requirements.txt` | `ytmusicapi` (+ `requests` for later phases). |
+1. Open a **private/incognito window** and log into
+   [music.youtube.com](https://music.youtube.com).
+2. Press F12 → **Network** tab → type `browse` in the filter → click around in
+   YTM so a POST to `/browse` appears.
+3. Right-click that request → **Copy → Copy as cURL (bash)**.
+4. **Close the incognito window** (don't log out).
+5. Paste into Crossfadarr's **⚙ Settings → YouTube Music auth** box and save.
+   The paste is validated against your library before anything is stored.
+
+**Why incognito?** Google rotates the cookies of sessions that stay active. If
+you copy headers from your everyday browser, that browser keeps using (and
+rotating) the session, and your pasted snapshot can die within hours. A closed
+incognito session's cookies are never rotated again and typically last weeks.
+When they do expire, the scan tells you plainly and points you back to
+Settings.
+
+**Why not OAuth?** We built the full OAuth device flow — and then verified
+that YouTube Music's internal API currently **rejects valid OAuth tokens
+outright** (HTTP 400 on every endpoint, even though the same token works
+against the official YouTube Data API). This is a Google-side limitation
+affecting all ytmusicapi-based tools. The OAuth code remains in the app,
+marked as unavailable, in case Google restores support.
+
+Your auth file (`auth.json`) stays on your machine, is git-ignored, and is
+used for nothing but reading your library.
+
+## How it works
+
+```
+YouTube Music (ytmusicapi, your session)
+     │  ingest: library + subscriptions + liked songs
+     ▼
+deduped candidate artists (+ thumbnails YTM already provides)
+     │  match: MusicBrainz search, alias/Unicode-aware, cached, ~1 req/s
+     ▼
+artist → MBID + confidence tier + alternates + release counts + genres
+     │  artwork: TheAudioDB portraits (optional key) → YTM images fallback
+     ▼
+review UI  →  Add selected  →  Lidarr (POST /api/v1/artist)
+```
+
+Everything lands in plain JSON files under `data/` and SQLite caches next to
+the app — no database server, easy to inspect, easy to back up.
+
+## Configuration notes
+
+- All configuration lives in the in-app **⚙ Settings**: Lidarr connection and
+  defaults, YouTube Music auth, optional TheAudioDB key, optional Forms login.
+  It's written to a git-ignored `config.yaml`.
+- **Metadata profile tip:** Lidarr's "Standard" profile tracks albums only. If
+  an artist mainly releases EPs or singles (common in K-pop), pick a metadata
+  profile that includes those, or the artist will look empty in Lidarr.
+- Locked yourself out of the Forms login? Edit `config.yaml` →
+  `auth: enabled: false` and restart.
+
+## External services & attribution
+
+| Service | Used for | Notes |
+|---|---|---|
+| [ytmusicapi](https://github.com/sigma67/ytmusicapi) | Reading your own YTM library | Unofficial API |
+| [MusicBrainz](https://musicbrainz.org/) | Artist identification, genres, release counts | Throttled to ~1 req/s with a descriptive User-Agent, per their guidelines |
+| [TheAudioDB](https://www.theaudiodb.com/) | Artist portraits | Optional, bring your own key |
+| [Lidarr](https://lidarr.audio/) | The destination | Its API v1, your instance |
+
+## Disclaimers
+
+- Crossfadarr is an independent project, **not affiliated with or endorsed by
+  Google, YouTube, Lidarr, MusicBrainz, or TheAudioDB**. Names are used only
+  to describe interoperability.
+- It accesses **your own account's data** via an unofficial API. Automated
+  access may conflict with YouTube's Terms of Service; use at your own
+  discretion, for personal use.
+- Crossfadarr manages metadata only. It downloads no media and circumvents no
+  technical protection measures.
+- Provided **as is**, without warranty of any kind — see [LICENSE](LICENSE).
+
+## License
+
+[MIT](LICENSE)

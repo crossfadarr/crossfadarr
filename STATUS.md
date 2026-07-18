@@ -205,8 +205,9 @@ add + settings save) · ✅ P5.11 no-release flag (release-groups piggybacked on
 the genres lookup; badge + filter + select-visible skip; also exposes bad
 matches — e.g. Utada/Uematsu were matched to wrong MB entities) · ✅ P5.12 add
 history + ingest-thumb art (100% card art) · ✅ P5.13/P5.14 metadata help +
-monitor/search guard · **Functionally complete for v1.0.** Remaining:
-P5.8 MIT + README + disclaimers · P5.7 dockerize
+monitor/search guard · **Functionally complete for v1.0.** ·
+✅ P5.8 OSS scaffolding (MIT LICENSE + public README with honest auth story +
+disclaimers; screenshots still needed before publish) · Remaining: P5.7 dockerize
 (moved last, 2026-07-18 — pairs with the GHCR publish) · P5.9 public repo +
 Actions → GHCR.
 Later ideas: track-level (liked songs → specific albums), playlist ingestion.
