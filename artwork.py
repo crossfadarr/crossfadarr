@@ -32,7 +32,10 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) crossfadarr/0.1"
 CACHE_DB = "artwork_cache.db"
 MATCHES = os.path.join("data", "matches.json")
 OUT = os.path.join("data", "artwork.json")
-INTERVAL = 2.1  # free tier allows 30 req/min — stay under it
+# Pacing per TheAudioDB tier: free = 30 req/min, premium (private key) = 100.
+INTERVAL_FREE = 2.1
+INTERVAL_PRIVATE = 0.7
+FREE_KEYS = {"123", "2"}  # documented test key + its legacy predecessor
 
 
 def _api_key() -> str:
@@ -64,6 +67,7 @@ def fetch(mbid: str, key: str) -> str | None:
 def run(progress=None) -> dict:
     """Fetch artwork for all matched MBIDs; `progress(i, total)` per live fetch."""
     key = _api_key()
+    interval = INTERVAL_FREE if key in FREE_KEYS else INTERVAL_PRIVATE
     matches = json.load(open(MATCHES, encoding="utf-8"))
     mbids = []
     seen = set()
@@ -89,7 +93,7 @@ def run(progress=None) -> dict:
         have[mb] = url
         if progress:
             progress(i, len(todo))
-        time.sleep(INTERVAL)
+        time.sleep(interval)
 
     art = {mb: have.get(mb) for mb in mbids if have.get(mb)}
     write_json_atomic(OUT, art)
