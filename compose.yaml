@@ -1,0 +1,11 @@
+services:
+  crossfadarr:
+    image: ghcr.io/crossfadarr/crossfadarr:latest
+    build: .
+    container_name: crossfadarr
+    ports:
+      - "5000:5000"
+    volumes:
+      # config.yaml, YTM auth, library data and caches all live here
+      - ./config:/config
+    restart: unless-stopped

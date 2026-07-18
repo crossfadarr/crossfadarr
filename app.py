@@ -1376,4 +1376,12 @@ applyFilters();   // apply defaults (in-Lidarr hidden) on load
 """
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    # Defaults suit local dev; the Docker image sets CROSSFADARR_HOST=0.0.0.0.
+    host = os.environ.get("CROSSFADARR_HOST", "127.0.0.1")
+    port = int(os.environ.get("CROSSFADARR_PORT", "5000"))
+    try:
+        from waitress import serve
+        print(f"Crossfadarr listening on http://{host}:{port}")
+        serve(app, host=host, port=port, threads=8)
+    except ImportError:  # waitress not installed — fall back to Flask's server
+        app.run(host=host, port=port, debug=False)

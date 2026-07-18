@@ -1,0 +1,26 @@
+# secrets & personal state — never in a build context
+config.yaml
+auth.json
+auth.json.new
+browser.json
+oauth.json
+data/
+*.db
+*_cache.db
+_cache_backup/
+
+# dev clutter
+.git/
+.gitignore
+.venv/
+venv/
+__pycache__/
+*.pyc
+.claude/
+.dockerignore
+Dockerfile
+compose.yaml
+
+# docs aren't needed inside the image
+*.md
+LICENSE

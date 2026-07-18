@@ -53,7 +53,29 @@ is added is Lidarr's business, configured by you, in Lidarr.
   artwork fetches about 3× faster. Anything without a portrait falls back to
   YouTube Music's own images
 
-## Quick start
+## Quick start (Docker)
+
+```yaml
+# compose.yaml
+services:
+  crossfadarr:
+    image: ghcr.io/crossfadarr/crossfadarr:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config:/config   # config, YTM auth, library data, caches
+    restart: unless-stopped
+```
+
+```bash
+docker compose up -d      # -> http://localhost:5000
+```
+
+The image runs as a non-root user (uid 1000) and keeps all state in the
+`/config` volume. To build locally instead: `docker compose up -d --build`
+from a clone of this repo.
+
+## Quick start (Python)
 
 ```bash
 git clone https://github.com/crossfadarr/crossfadarr.git
@@ -64,7 +86,9 @@ python -m venv .venv
 .venv/Scripts/python app.py                       # -> http://127.0.0.1:5000
 ```
 
-Then, in the app:
+## First-run setup
+
+In the app:
 
 1. **⚙ Settings** → enter your Lidarr URL + API key → *Test connection* → Save.
 2. **⚙ Settings → YouTube Music auth** → paste your browser headers (see below).
@@ -72,8 +96,6 @@ Then, in the app:
    takes several minutes (MusicBrainz allows ~1 request/second); re-scans take
    seconds.
 4. Review, tick, **Add selected**.
-
-A Docker image is planned — until then it runs anywhere Python does.
 
 ## YouTube Music authentication (read this)
 
