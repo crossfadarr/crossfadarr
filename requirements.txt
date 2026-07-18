@@ -1,0 +1,4 @@
+ytmusicapi>=1.8.0     # YT Music private library (ingest)
+requests>=2.31        # MusicBrainz + Lidarr HTTP
+Flask>=3.0            # review UI (Phase 4)
+PyYAML>=6.0           # config.yaml
