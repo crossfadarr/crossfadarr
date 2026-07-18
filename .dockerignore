@@ -24,3 +24,4 @@ compose.yaml
 # docs aren't needed inside the image
 *.md
 LICENSE
+docs/
