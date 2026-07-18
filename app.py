@@ -249,8 +249,8 @@ def api_ytm_auth():
             # ytmusicapi's confusing fallback when the authorization header is
             # missing — the paste didn't come from a full /browse request.
             msg = ("headers incomplete — copy the full request (needs the "
-                   "authorization header): use Copy as cURL on a POST /browse "
-                   "request at music.youtube.com")
+                   "authorization header): use Copy as cURL (bash) on a POST "
+                   "/browse request at music.youtube.com")
         elif any(k in low for k in ("twocolumnbrowseresultsrenderer",
                                     "sign in", "signed in", "401")):
             msg = ("headers parsed, but YT Music says signed-out — copy them from "
@@ -393,12 +393,13 @@ TEMPLATE = r"""
   .gear{cursor:pointer;font-size:20px;padding:2px 6px;border-radius:8px;color:#cbd5e1}
   .gear:hover{background:#0e1218}
   .modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:50}
-  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;width:min(480px,92vw);box-shadow:0 20px 60px -20px #000}
-  .sheet h3{margin:0 0 14px;font-size:16px}
-  .sheet label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
-  .sheet input,.sheet select{width:100%}
-  .sheet textarea{width:100%;background:#0e1218;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-family:ui-monospace,Consolas,monospace;font-size:11px;resize:vertical}
-  .hint{font-size:11px;color:var(--mut);margin-top:5px;line-height:1.5}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px 30px;width:min(700px,94vw);max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px -20px #000;font-size:14px}
+  .sheet h3{margin:0 0 16px;font-size:19px}
+  .sheet label{display:block;font-size:13px;color:var(--mut);margin:14px 0 5px}
+  .sheet input,.sheet select{width:100%;font-size:14px;padding:8px 11px}
+  .sheet textarea{width:100%;background:#0e1218;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-family:ui-monospace,Consolas,monospace;font-size:12px;resize:vertical}
+  .hint{font-size:12.5px;color:var(--mut);margin-top:7px;line-height:1.6}
+  .hint a{color:#93b4e6;text-decoration:underline}
   .sheet .inline{display:flex;gap:8px;align-items:center}
   .sheet hr{border:0;border-top:1px solid var(--line);margin:16px 0}
   .sheet .foot{display:flex;gap:10px;align-items:center;margin-top:16px}
@@ -585,8 +586,8 @@ TEMPLATE = r"""
     </select>
     <hr>
     <label>YouTube Music auth <span class="muted" id="ytm_state">· {{ytm_auth_state}}</span></label>
-    <textarea id="ytm_raw" rows="4" placeholder="Paste raw request headers or a &quot;Copy as cURL&quot; command here"></textarea>
-    <div class="hint">music.youtube.com (logged in) → F12 → Network → filter “browse” → right-click a POST /browse request → Copy → <b>Copy as cURL</b> → paste above. Validated before saving; nothing is stored if it fails.</div>
+    <textarea id="ytm_raw" rows="5" placeholder="Paste raw request headers or a &quot;Copy as cURL (bash)&quot; command here"></textarea>
+    <div class="hint"><a href="https://music.youtube.com" target="_blank" rel="noopener">music.youtube.com</a> (logged in) → F12 → Network → filter “browse” → right-click a POST /browse request → Copy → <b>Copy as cURL (bash)</b> → paste above. Validated before saving; nothing is stored if it fails.</div>
     <div class="inline" style="margin-top:8px">
       <button class="secondary" type="button" id="ytm_save" onclick="saveYtmAuth()">Save YTM auth</button>
       <span id="ytm_msg"></span>
