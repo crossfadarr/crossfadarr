@@ -48,8 +48,10 @@ is added is Lidarr's business, configured by you, in Lidarr.
 - A YouTube Music account
 - Optional: a private [TheAudioDB](https://www.theaudiodb.com/) API key for
   artist portraits — by default Crossfadarr uses their public free-tier key
-  (v1 API) within its rate limits, and falls back to YouTube Music's own
-  images for anything without a portrait
+  (v1 API) and paces requests to the free tier's 30/min limit; a private
+  (Patreon supporter) key raises that to the premium rate, making first-scan
+  artwork fetches about 3× faster. Anything without a portrait falls back to
+  YouTube Music's own images
 
 ## Quick start
 
@@ -134,6 +136,10 @@ the app — no database server, easy to inspect, easy to back up.
 - **Metadata profile tip:** Lidarr's "Standard" profile tracks albums only. If
   an artist mainly releases EPs or singles (common in K-pop), pick a metadata
   profile that includes those, or the artist will look empty in Lidarr.
+- **TheAudioDB key:** leave the Settings field blank to use the public
+  free-tier key at free-tier pacing. Enter a private key and Crossfadarr
+  automatically speeds up to the premium rate. Only the first scan notices —
+  portraits are cached after that.
 - Locked yourself out of the Forms login? Edit `config.yaml` →
   `auth: enabled: false` and restart.
 
@@ -143,7 +149,7 @@ the app — no database server, easy to inspect, easy to back up.
 |---|---|---|
 | [ytmusicapi](https://github.com/sigma67/ytmusicapi) | Reading your own YTM library | Unofficial API |
 | [MusicBrainz](https://musicbrainz.org/) | Artist identification, genres, release counts | Throttled to ~1 req/s with a descriptive User-Agent, per their guidelines |
-| [TheAudioDB](https://www.theaudiodb.com/) | Artist portraits | v1 API; public free-tier key by default (rate-limited accordingly), private key optional |
+| [TheAudioDB](https://www.theaudiodb.com/) | Artist portraits | v1 API; public free-tier key by default, paced to each tier's rate limit; private key optional (and faster) |
 | [Lidarr](https://lidarr.audio/) | The destination | Its API v1, your instance |
 
 ## Disclaimers
