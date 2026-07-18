@@ -1018,6 +1018,12 @@ function updateCount(){
   document.getElementById('selcount').textContent =
     items().filter(it=>{const c=it.querySelector('.pick'); return c && c.checked;}).length;
 }
+function updateStats(){
+  // keep the header chips honest after in-place adds (no reload needed)
+  const all=items();
+  document.querySelector('#inlibStat b').textContent = all.filter(i=>i.dataset.inlib==='1').length;
+  document.querySelector('.stat.hot b').textContent = all.filter(i=>i.dataset.addable==='1').length;
+}
 async function addSelected(){
   const picked=[];
   items().forEach(it=>{
@@ -1042,10 +1048,11 @@ async function addSelected(){
     // P4.2 - flip added/existing rows to "in Lidarr" in place
     const done=new Set(j.results.filter(r=>r.status==='added'||r.status==='exists').map(r=>r.mbid));
     items().forEach(it=>{ if(done.has(it.dataset.mbid)){
-      it.classList.add('disabled'); it.dataset.addable='0';
+      it.classList.add('disabled'); it.dataset.addable='0'; it.dataset.inlib='1';
       const c=it.querySelector('.pick'); if(c){c.checked=false;c.remove();}
       const mt=it.querySelector('.match'); if(mt) mt.innerHTML='<span class="muted">✓ in Lidarr</span>';
     }});
+    updateStats();
     document.getElementById('results').innerHTML =
       `<b>Added ${j.summary.added}</b> · already present ${j.summary.exists} · errors ${j.summary.error}` +
       (j.summary.error ? '<br>'+j.results.filter(r=>r.status==='error').map(r=>r.mbid+': '+r.msg).join('<br>') : '');
