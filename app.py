@@ -951,12 +951,12 @@ TEMPLATE = r"""
       <div class="inline" style="margin-top:8px">
         <input id="sec_pass" type="password" placeholder="{{'New password (blank = keep current)' if auth_has_pw else 'Password'}}" autocomplete="new-password">
       </div>
+      {% if auth_enabled %}
       <div class="inline" style="margin-top:8px">
-        <button class="secondary" type="button" onclick="saveSecurity()">Save security</button>
-        {% if auth_enabled %}<button class="secondary" type="button" onclick="signOut()">Sign out</button>{% endif %}
-        <span id="sec_msg"></span>
+        <button class="secondary" type="button" onclick="signOut()">Sign out</button>
       </div>
-      <div class="hint">Optional arr-style login covering every page and API route. The password is stored as a salted hash in <code>config.yaml</code>. Locked out? Edit <code>config.yaml</code> → <code>auth: enabled: false</code> and restart.</div>
+      {% endif %}
+      <div class="hint">Optional arr-style login covering every page and API route. Applied by the <b>Save</b> button below. The password is stored as a salted hash in <code>config.yaml</code>. Locked out? Edit <code>config.yaml</code> → <code>auth: enabled: false</code> and restart.</div>
     </div>
 
     <hr>
@@ -1036,7 +1036,17 @@ async function testConn(){
   }catch(e){s.className='err';s.textContent='✗ '+e;}
 }
 async function saveSettings(){
+  // one Save for the whole sheet: security first (its failure aborts), then
+  // the Lidarr connection + defaults (which triggers the reload)
   const m=document.getElementById('s_msg'); m.textContent='saving…'; m.className='';
+  try{
+    const sec=await fetch('/api/auth/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({enabled:document.getElementById('sec_enabled').value==='1',
+        username:document.getElementById('sec_user').value,
+        password:document.getElementById('sec_pass').value})});
+    const sj=await sec.json();
+    if(!sj.ok){m.className='err';m.textContent='✗ security: '+sj.error;return;}
+  }catch(e){m.className='err';m.textContent='✗ security: '+e;return;}
   const body={url:document.getElementById('s_url').value,key:document.getElementById('s_key').value,
     root:document.getElementById('s_root').value,qp:document.getElementById('s_qp').value,
     mp:document.getElementById('s_mp').value,monitor_new:document.getElementById('s_mn').value,
@@ -1048,22 +1058,7 @@ async function saveSettings(){
     else{m.className='err';m.textContent='✗ '+j.error;}
   }catch(e){m.className='err';m.textContent='✗ '+e;}
 }
-// P5.4 - optional Forms login
-async function saveSecurity(){
-  const m=document.getElementById('sec_msg'); m.textContent='saving…'; m.className='';
-  try{
-    const r=await fetch('/api/auth/settings',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({enabled:document.getElementById('sec_enabled').value==='1',
-        username:document.getElementById('sec_user').value,
-        password:document.getElementById('sec_pass').value})});
-    const j=await r.json();
-    if(j.ok){
-      m.className='ok'; m.textContent='saved — reloading…';
-      document.getElementById('sec_pass').value='';
-      setTimeout(()=>location.reload(),700);
-    }else{m.className='err';m.textContent='✗ '+j.error;}
-  }catch(e){m.className='err';m.textContent='✗ '+e;}
-}
+// P5.4 - optional Forms login (saved by the sheet's unified Save button)
 async function signOut(){
   try{ await fetch('/logout',{method:'POST'}); }catch(e){}
   location='/login';
