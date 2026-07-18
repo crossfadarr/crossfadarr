@@ -256,6 +256,7 @@ def index():
         auth_enabled=bool(AUTH.get("enabled")),
         auth_username=AUTH.get("username") or "",
         auth_has_pw=bool(AUTH.get("password_hash")),
+        tadb_key=(_read_cfg().get("theaudiodb") or {}).get("api_key") or "",
     )
 
 
@@ -348,6 +349,12 @@ def api_settings():
         dfl["metadata_profile_id"] = int(d["mp"])
     if d.get("monitor_new"):
         dfl["monitor_new"] = d["monitor_new"]
+    if "tadb_key" in d:  # optional; empty clears it
+        tadb = (d.get("tadb_key") or "").strip()
+        if tadb:
+            cfg.setdefault("theaudiodb", {})["api_key"] = tadb
+        else:
+            cfg.pop("theaudiodb", None)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
     LID = Lidarr()  # reload with new settings
@@ -909,6 +916,9 @@ TEMPLATE = r"""
       <option value="new" {{'selected' if defaults.get('monitor_new')=='new' else ''}}>New</option>
       <option value="none" {{'selected' if defaults.get('monitor_new')=='none' else ''}}>None</option>
     </select>
+    <label>TheAudioDB API key <span class="muted">(optional)</span></label>
+    <input id="s_tadb" type="text" value="{{tadb_key}}" placeholder="leave blank to use YouTube Music images only">
+    <div class="hint">Artist portraits come from TheAudioDB (same source Lidarr uses) when a key is set; without one, cards use the images YouTube Music provides. Keys are available via <a href="https://www.theaudiodb.com/api_apply.php" target="_blank" rel="noopener">theaudiodb.com</a>.</div>
     <hr>
     <label>Security</label>
     <div class="authbox">
@@ -1013,7 +1023,8 @@ async function saveSettings(){
   const m=document.getElementById('s_msg'); m.textContent='saving…'; m.className='';
   const body={url:document.getElementById('s_url').value,key:document.getElementById('s_key').value,
     root:document.getElementById('s_root').value,qp:document.getElementById('s_qp').value,
-    mp:document.getElementById('s_mp').value,monitor_new:document.getElementById('s_mn').value};
+    mp:document.getElementById('s_mp').value,monitor_new:document.getElementById('s_mn').value,
+    tadb_key:document.getElementById('s_tadb').value};
   try{
     const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json();

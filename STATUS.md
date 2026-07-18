@@ -198,9 +198,10 @@ cookie auth hardened — Settings now teaches the **incognito-session trick**
 rotated → lasts weeks, vs ~40 min from an active browser session) ·
 ✅ P5.4 Forms login (optional arr-style: Settings → Security, salted hash in
 config.yaml, session gate on all routes + 401 for APIs, /login page, 30-day
-sessions; ships disabled) · P5.5 Lidarr-read cache
-· P5.6 TheAudioDB key handling · P5.7 dockerize · P5.8 MIT + README + disclaimers ·
-P5.9 public repo + Actions → GHCR.
+sessions; ships disabled) · P5.6 TheAudioDB key handling ·
+P5.5 Lidarr-read cache · P5.8 MIT + README + disclaimers · P5.7 dockerize
+(moved last, 2026-07-18 — pairs with the GHCR publish) · P5.9 public repo +
+Actions → GHCR.
 Later ideas: track-level (liked songs → specific albums), playlist ingestion.
 
 Tracked in Vikunja project 12 (epic #8, sub-tasks P5.0–P5.10).

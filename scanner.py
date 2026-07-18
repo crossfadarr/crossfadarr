@@ -122,7 +122,11 @@ def _worker(auth: str) -> None:
                 r = matcher.run(progress=cb)
                 summary["match"] = {"total": r["total"], "tiers": r["tiers"]}
             elif key == "artwork":
-                summary["artwork"] = artwork.run(progress=cb)
+                r = artwork.run(progress=cb)
+                summary["artwork"] = r
+                if r.get("skipped"):
+                    _set(message="Artwork skipped — no TheAudioDB key (using "
+                                 "YouTube Music images)")
             elif key == "thumbs":
                 summary["thumbs"] = ytm_thumbs.run(auth_path=auth, progress=cb)
             else:
