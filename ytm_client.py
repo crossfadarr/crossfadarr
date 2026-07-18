@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""P5.10 - Shared YTMusic client construction (OAuth or browser-header auth).
+"""P5.10 - Shared YTMusic client construction (browser-header or OAuth auth).
 
-Auth file precedence: oauth.json (durable, auto-refreshing) wins over the
-fragile browser-cookie files. OAuth needs the user's own Google Cloud client
-id/secret (config.yaml -> ytm:) because tokens can only be refreshed with the
-credentials that minted them.
+Auth file precedence: browser-cookie files first. OAuth would be the durable
+path, but as of 2026-07 YouTube Music's internal API rejects OAuth Bearer
+tokens outright (HTTP 400 on every endpoint, even for valid correctly-scoped
+tokens — known upstream issue, ytmusicapi #676/#682), so oauth.json is only
+used as a last resort in case Google restores support.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import yaml
 
 CONFIG_PATH = "config.yaml"
 OAUTH_FILE = "oauth.json"
-AUTH_CANDIDATES = (OAUTH_FILE, "auth.json", "browser.json")
+AUTH_CANDIDATES = ("auth.json", "browser.json", OAUTH_FILE)
 
 
 def find_auth() -> str | None:

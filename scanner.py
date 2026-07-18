@@ -45,8 +45,9 @@ STAGES = [
 _WEIGHT_TOTAL = sum(s[2] for s in STAGES)
 
 AUTH_HELP = ("YouTube Music auth is missing or expired. Open ⚙ Settings → "
-             "YouTube Music auth and connect with OAuth (recommended — it "
-             "auto-renews), or paste fresh browser headers, then retry the scan.")
+             "YouTube Music auth and paste fresh browser headers (best copied "
+             "from a private/incognito window — see the tip there), then retry "
+             "the scan.")
 
 
 def _find_auth() -> str | None:

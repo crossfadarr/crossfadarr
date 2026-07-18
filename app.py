@@ -293,15 +293,22 @@ def _oauth_worker(creds, device_code: str, interval: float, expires_at: float) -
         )
         tok.update(raw)
         tok.local_cache = Path(ytm_client.OAUTH_FILE)  # writes oauth.json
-        # Same signed-in canary as the browser-headers path.
-        ytm_client.build(ytm_client.OAUTH_FILE).get_liked_songs(limit=1)
     except Exception as e:  # noqa: BLE001
         try:
             os.remove(ytm_client.OAUTH_FILE)
         except OSError:
             pass
-        _oauth_set(state="error", error="Google connected but the YT Music "
-                                        f"check failed: {str(e)[:200]}")
+        _oauth_set(state="error", error=f"could not store the token: {str(e)[:200]}")
+        return
+    try:
+        # Same signed-in canary as the browser-headers path. Keep oauth.json on
+        # failure — the token itself is real (Google approved it), and some YTM
+        # endpoints can be flaky under OAuth; a kept token can be debugged/used.
+        ytm_client.build(ytm_client.OAUTH_FILE).get_liked_songs(limit=1)
+    except Exception as e:  # noqa: BLE001
+        _oauth_set(state="error", error="Google connected and the token was "
+                                        "saved, but a YT Music test call failed: "
+                                        f"{str(e)[:200]}")
         return
     scanner.clear_error()
     _oauth_set(state="done", error=None)
@@ -538,6 +545,7 @@ TEMPLATE = r"""
   .hint a{color:#93b4e6;text-decoration:underline}
   .authbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
   .authbox .meth{font-weight:700;font-size:13.5px}
+  .oacode{user-select:all;cursor:pointer;background:#0e1218;border:1px solid var(--line);border-radius:6px;padding:3px 10px;font-family:ui-monospace,Consolas,monospace;font-size:16px;letter-spacing:2px}
   .sheet .inline{display:flex;gap:8px;align-items:center}
   .sheet hr{border:0;border-top:1px solid var(--line);margin:16px 0}
   .sheet .foot{display:flex;gap:10px;align-items:center;margin-top:16px}
@@ -729,7 +737,19 @@ TEMPLATE = r"""
     <label>YouTube Music auth <span class="muted" id="ytm_state">· {{ytm_auth_state}}</span></label>
 
     <div class="authbox">
-      <div class="meth">OAuth <span class="muted">(recommended — renews itself; needs your own free Google Cloud client)</span></div>
+      <div class="meth">Browser headers <span class="muted">(the working method)</span></div>
+      <textarea id="ytm_raw" rows="4" placeholder="Paste raw request headers or a &quot;Copy as cURL (bash)&quot; command here" style="margin-top:8px"></textarea>
+      <div class="hint"><a href="https://music.youtube.com" target="_blank" rel="noopener">music.youtube.com</a> (logged in) → F12 → Network → filter “browse” → right-click a POST /browse request → Copy → <b>Copy as cURL (bash)</b> → paste above. Validated before saving; nothing is stored if it fails.</div>
+      <div class="hint"><b>Make it last:</b> do this from a <b>private/incognito window</b>, then close that window <em>without logging out</em>. Google rotates the cookies of sessions that stay active — a snapshot from your everyday browser can die within hours, while one from a closed incognito session typically lasts weeks.</div>
+      <div class="inline" style="margin-top:8px">
+        <button class="secondary" type="button" id="ytm_save" onclick="saveYtmAuth()">Save YTM auth</button>
+        <span id="ytm_msg"></span>
+      </div>
+    </div>
+
+    <div class="authbox">
+      <div class="meth">OAuth <span class="muted">(currently rejected by YouTube Music’s servers)</span></div>
+      <div class="hint">⚠ Google’s music API stopped accepting OAuth tokens (verified 2026-07: a valid, correctly-scoped token gets HTTP 400 from every endpoint — known upstream issue, ytmusicapi #676/#682). The flow below is kept in case support returns; use browser headers above for now.</div>
       <div class="inline" style="margin-top:8px">
         <input id="oa_id" type="text" placeholder="OAuth client ID" value="{{ytm_client_id}}">
       </div>
@@ -742,22 +762,14 @@ TEMPLATE = r"""
       </div>
       <div id="oa_code" style="display:none;margin-top:10px;font-size:14px">
         Go to <a id="oa_link" href="" target="_blank" rel="noopener" style="color:#93b4e6"></a>
-        and enter code <b id="oa_user_code" style="letter-spacing:1px"></b>
+        and enter code <b id="oa_user_code" class="oacode" title="Click to select"></b>
+        <button class="secondary" type="button" id="oa_copy" style="padding:3px 10px" onclick="copyOaCode()">copy</button>
         <span class="muted">— waiting for approval…</span>
-        <button class="secondary" type="button" style="margin-left:8px;padding:3px 10px" onclick="oauthCancel()">Cancel</button>
+        <button class="secondary" type="button" style="margin-left:4px;padding:3px 10px" onclick="oauthCancel()">Cancel</button>
       </div>
       <div class="hint"><a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a> → new project → enable <b>YouTube Data API v3</b> → OAuth consent screen: publish to <b>Production</b> (Testing tokens die after 7 days) → Credentials → Create OAuth client ID → type <b>TVs and Limited Input devices</b> → copy ID + secret above. One-time, ~5 min.</div>
     </div>
 
-    <div class="authbox">
-      <div class="meth">Browser headers <span class="muted">(quick fallback — expires within days)</span></div>
-      <textarea id="ytm_raw" rows="4" placeholder="Paste raw request headers or a &quot;Copy as cURL (bash)&quot; command here" style="margin-top:8px"></textarea>
-      <div class="hint"><a href="https://music.youtube.com" target="_blank" rel="noopener">music.youtube.com</a> (logged in) → F12 → Network → filter “browse” → right-click a POST /browse request → Copy → <b>Copy as cURL (bash)</b> → paste above. Validated before saving; nothing is stored if it fails.</div>
-      <div class="inline" style="margin-top:8px">
-        <button class="secondary" type="button" id="ytm_save" onclick="saveYtmAuth()">Save YTM auth</button>
-        <span id="ytm_msg"></span>
-      </div>
-    </div>
     <div class="foot">
       <button type="button" onclick="saveSettings()">Save</button>
       <button class="secondary" type="button" onclick="closeSettings()">Cancel</button>
@@ -841,6 +853,13 @@ async function oauthConnect(){
 async function oauthCancel(){
   await fetch('/api/ytm/oauth/cancel',{method:'POST'});
   oaUI({state:'idle'});
+}
+async function copyOaCode(){
+  const btn=document.getElementById('oa_copy');
+  try{
+    await navigator.clipboard.writeText(document.getElementById('oa_user_code').textContent);
+    btn.textContent='copied ✓'; setTimeout(()=>btn.textContent='copy',1500);
+  }catch(e){ btn.textContent='select + Ctrl-C'; setTimeout(()=>btn.textContent='copy',2500); }
 }
 // resume a pending device-code flow if settings is reopened / page reloaded
 (async()=>{
