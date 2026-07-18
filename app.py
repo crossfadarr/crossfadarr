@@ -832,7 +832,7 @@ TEMPLATE = r"""
         <label class="ctl">Root <select id="root">{% for r in rootfolders %}<option value="{{r.path}}" {{'selected' if r.path==defaults.get('root_folder') else ''}}>{{r.path}}</option>{% endfor %}</select></label>
         <label class="ctl">Quality <select id="qp">{% for q in qps %}<option value="{{q.id}}" {{'selected' if q.id==defaults.get('quality_profile_id') else ''}}>{{q.name}}</option>{% endfor %}</select></label>
         <label class="ctl">Metadata
-          <span class="help" tabindex="0"><svg class="ic" viewBox="0 0 24 24" width="15" height="15" aria-label="help"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="7.7" r="1.25" fill="currentColor"/><rect x="10.9" y="10.6" width="2.2" height="6.7" rx="1.1" fill="currentColor"/></svg><span class="pop">The metadata profile controls which <b>release types</b> Lidarr tracks (album / EP / single / live…).<br><b>Standard</b> is albums-only — artists who mostly release EPs and singles (much K-pop) will look empty in Lidarr.<br>Pick a profile that includes EPs &amp; singles for those artists.</span></span>
+          <span class="help" tabindex="0"><svg class="ic" viewBox="0 0 24 24" width="15" height="15" aria-label="help"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="7.7" r="1.25" fill="currentColor"/><rect x="10.9" y="10.6" width="2.2" height="6.7" rx="1.1" fill="currentColor"/></svg><span class="pop">Lidarr only tracks the <b>release types</b> this profile allows — albums, EPs, singles, live recordings and so on.<br>The <b>Standard</b> profile is albums-only, so an artist who mainly releases EPs or singles (common in K-pop) can appear to have no music at all.<br>For those artists, pick a profile that includes EPs and singles.</span></span>
           <select id="mp">{% for m in mps %}<option value="{{m.id}}" {{'selected' if m.id==defaults.get('metadata_profile_id') else ''}}>{{m.name}}</option>{% endfor %}</select></label>
       </div>
       <div class="frow">
@@ -924,7 +924,7 @@ TEMPLATE = r"""
     <select id="s_qp">{% for q in qps %}<option value="{{q.id}}" {{'selected' if q.id==defaults.get('quality_profile_id') else ''}}>{{q.name}}</option>{% endfor %}</select>
     <label>Default metadata profile</label>
     <select id="s_mp">{% for m in mps %}<option value="{{m.id}}" {{'selected' if m.id==defaults.get('metadata_profile_id') else ''}}>{{m.name}}</option>{% endfor %}</select>
-    <div class="hint">Controls which release types Lidarr tracks. "Standard" is albums-only — EP/single-heavy artists need a profile that includes those types.</div>
+    <div class="hint">Sets which release types Lidarr tracks for newly added artists. The "Standard" profile only includes albums — if an artist mainly releases EPs or singles, choose a profile that includes those too.</div>
     <label>Default monitor new albums</label>
     <select id="s_mn">
       <option value="all" {{'selected' if defaults.get('monitor_new','all')=='all' else ''}}>All</option>
