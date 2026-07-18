@@ -279,6 +279,8 @@ def add():
         "exists": sum(r["status"] == "exists" for r in results),
         "error": sum(r["status"] == "error" for r in results),
     }
+    if summary["added"]:
+        LID.invalidate("mbids")  # library changed — next page load must see it
     # P5.12 - persistent add history (data/added_log.json, git-ignored):
     # Lidarr files artists under the MB canonical name (often native script),
     # so keep the YTM name alongside for findability.
@@ -829,12 +831,14 @@ TEMPLATE = r"""
       <div class="frow">
         <label class="ctl">Root <select id="root">{% for r in rootfolders %}<option value="{{r.path}}" {{'selected' if r.path==defaults.get('root_folder') else ''}}>{{r.path}}</option>{% endfor %}</select></label>
         <label class="ctl">Quality <select id="qp">{% for q in qps %}<option value="{{q.id}}" {{'selected' if q.id==defaults.get('quality_profile_id') else ''}}>{{q.name}}</option>{% endfor %}</select></label>
-        <label class="ctl">Metadata <select id="mp">{% for m in mps %}<option value="{{m.id}}" {{'selected' if m.id==defaults.get('metadata_profile_id') else ''}}>{{m.name}}</option>{% endfor %}</select></label>
+        <label class="ctl">Metadata
+          <span class="help" tabindex="0"><svg class="ic" viewBox="0 0 24 24" width="15" height="15" aria-label="help"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="7.7" r="1.25" fill="currentColor"/><rect x="10.9" y="10.6" width="2.2" height="6.7" rx="1.1" fill="currentColor"/></svg><span class="pop">The metadata profile controls which <b>release types</b> Lidarr tracks (album / EP / single / live…).<br><b>Standard</b> is albums-only — artists who mostly release EPs and singles (much K-pop) will look empty in Lidarr.<br>Pick a profile that includes EPs &amp; singles for those artists.</span></span>
+          <select id="mp">{% for m in mps %}<option value="{{m.id}}" {{'selected' if m.id==defaults.get('metadata_profile_id') else ''}}>{{m.name}}</option>{% endfor %}</select></label>
       </div>
       <div class="frow">
         <label class="ctl">New albums <select id="monitor_new"><option value="all" selected>All</option><option value="new">New</option><option value="none">None</option></select></label>
-        <label class="ctl"><input type="checkbox" id="monitored" checked> monitor</label>
-        <label class="ctl"><input type="checkbox" id="search_on_add" checked> search</label>
+        <label class="ctl"><input type="checkbox" id="monitored" checked onchange="syncSearch()"> monitor</label>
+        <label class="ctl" id="searchlbl" title="Search runs only for monitored artists"><input type="checkbox" id="search_on_add" checked> search</label>
       </div>
       <div class="frow">
         <button class="secondary" onclick="checkVisible(true)">select visible</button>
@@ -920,6 +924,7 @@ TEMPLATE = r"""
     <select id="s_qp">{% for q in qps %}<option value="{{q.id}}" {{'selected' if q.id==defaults.get('quality_profile_id') else ''}}>{{q.name}}</option>{% endfor %}</select>
     <label>Default metadata profile</label>
     <select id="s_mp">{% for m in mps %}<option value="{{m.id}}" {{'selected' if m.id==defaults.get('metadata_profile_id') else ''}}>{{m.name}}</option>{% endfor %}</select>
+    <div class="hint">Controls which release types Lidarr tracks. "Standard" is albums-only — EP/single-heavy artists need a profile that includes those types.</div>
     <label>Default monitor new albums</label>
     <select id="s_mn">
       <option value="all" {{'selected' if defaults.get('monitor_new','all')=='all' else ''}}>All</option>
@@ -1218,6 +1223,18 @@ function checkVisible(v){
 function updateCount(){
   document.getElementById('selcount').textContent =
     items().filter(it=>{const c=it.querySelector('.pick'); return c && c.checked;}).length;
+}
+function syncSearch(){
+  // Lidarr can't search an unmonitored artist — enforce the dependency
+  const m=document.getElementById('monitored'), s=document.getElementById('search_on_add');
+  if(m.checked){
+    s.disabled=false;
+    if(s.dataset.was==='1'){s.checked=true; delete s.dataset.was;}
+  }else{
+    s.dataset.was = s.checked ? '1' : '0';
+    s.checked=false; s.disabled=true;
+  }
+  document.getElementById('searchlbl').style.opacity = m.checked ? '' : '.45';
 }
 function updateStats(){
   // keep the header chips honest after in-place adds (no reload needed)

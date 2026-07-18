@@ -8,6 +8,8 @@ Add flow (verified against the real instance):
 """
 from __future__ import annotations
 
+import time
+
 import yaml
 import requests
 
@@ -33,6 +35,9 @@ class Lidarr:
             self.matches_file = cfg.get("matches_file", "data/matches.json")
         self.s = requests.Session()
         self.s.headers["X-Api-Key"] = self.key
+        # P5.5 - read cache: {key: (fetched_at, value)}. Lives on the instance,
+        # so the settings-save flow (which rebuilds LID) starts fresh for free.
+        self._cache: dict[str, tuple[float, object]] = {}
 
     @property
     def configured(self) -> bool:
@@ -45,6 +50,20 @@ class Lidarr:
         r.raise_for_status()
         return r.json()
 
+    def _cached(self, key: str, fn, ttl: float):
+        hit = self._cache.get(key)
+        if hit and time.time() - hit[0] < ttl:
+            return hit[1]
+        val = fn()
+        self._cache[key] = (time.time(), val)
+        return val
+
+    def invalidate(self, key: str | None = None) -> None:
+        if key is None:
+            self._cache.clear()
+        else:
+            self._cache.pop(key, None)
+
     def ping(self) -> bool:
         try:
             self._get("system/status")
@@ -53,16 +72,18 @@ class Lidarr:
             return False
 
     def existing_mbids(self) -> set[str]:
-        return {a["foreignArtistId"] for a in self._get("artist")}
+        # short TTL: the library changes whenever we (or Lidarr itself) add
+        return self._cached(
+            "mbids", lambda: {a["foreignArtistId"] for a in self._get("artist")}, 60)
 
     def rootfolders(self) -> list[dict]:
-        return self._get("rootfolder")
+        return self._cached("roots", lambda: self._get("rootfolder"), 600)
 
     def quality_profiles(self) -> list[dict]:
-        return self._get("qualityprofile")
+        return self._cached("qps", lambda: self._get("qualityprofile"), 600)
 
     def metadata_profiles(self) -> list[dict]:
-        return self._get("metadataprofile")
+        return self._cached("mps", lambda: self._get("metadataprofile"), 600)
 
     def lookup_mbid(self, mbid: str) -> dict | None:
         res = self._get("artist/lookup", term=f"lidarr:{mbid}")
@@ -73,6 +94,8 @@ class Lidarr:
     def add_artist(self, mbid: str, root: str, qp: int, mp: int,
                    monitored: bool = True, search: bool = True,
                    monitor_new: str = "all") -> dict:
+        if not monitored:
+            search = False  # Lidarr can't search an unmonitored artist
         try:
             obj = self.lookup_mbid(mbid)
         except Exception as e:  # noqa: BLE001
