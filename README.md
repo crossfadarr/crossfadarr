@@ -189,3 +189,6 @@ the app — no database server, easy to inspect, easy to back up.
 ## License
 
 [MIT](LICENSE)
+
+Crossfadarr is built and maintained with substantial AI assistance
+(Anthropic's Claude); commits carry co-author attribution.
