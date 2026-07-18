@@ -292,7 +292,7 @@ def add():
         log = json.load(open(ADDED_LOG, encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         log = []
-    ts = time.strftime("%Y-%m-%d %H:%M")
+    ts = round(time.time())  # UTC epoch — the browser renders it in local time
     log += [{"ts": ts, "ytm_name": ytm_names.get(r["mbid"], ""),
              "lidarr_name": r.get("name"), "mbid": r["mbid"],
              "status": r["status"], "msg": r.get("msg")} for r in results]
@@ -890,10 +890,10 @@ TEMPLATE = r"""
 <div id="results"></div>
 <div id="items" class="cards">
 {% for r in rows %}
-  <div class="item {{'disabled' if not r.addable else ''}}" data-tier="{{r.tier}}" data-name="{{r.ytm_name|lower}}" data-addable="{{'1' if r.addable else '0'}}" data-mbid="{{r.mbid or ''}}" data-liked="{{r.liked}}" data-sources="{{r.sources|join(',')}}" data-type="{{r.mb_type}}" data-genres="{{r.genres|join(',')}}" data-inlib="{{'1' if r.in_lib else '0'}}" data-norel="{{'1' if r.no_releases else '0'}}">
+  <div class="item {{'disabled' if not r.addable else ''}}" data-tier="{{r.tier}}" data-name="{{r.ytm_name|lower}}" data-addable="{{'1' if r.addable else '0'}}" data-mbid="{{r.mbid or ''}}" data-liked="{{r.liked}}" data-sources="{{r.sources|join(',')}}" data-type="{{r.mb_type}}" data-genres="{{r.genres|join(',')}}" data-inlib="{{'1' if r.in_lib else '0'}}" data-norel="{{'1' if r.no_releases else '0'}}" data-initials="{{r.initials}}">
     <div class="thumb">
       <span class="pickwrap">{% if r.addable %}<input type="checkbox" class="pick" onchange="updateCount()">{% endif %}</span>
-      {% if r.art %}<img class="art" loading="lazy" src="{{r.art}}" alt="">{% else %}<div class="ph">{{r.initials}}</div>{% endif %}
+      {% if r.art %}<img class="art" loading="lazy" src="{{r.art}}" alt="" onerror="artFail(this)">{% else %}<div class="ph">{{r.initials}}</div>{% endif %}
       <span class="dot {{r.tier}}" title="{{r.match_label}}"></span>
       <a class="ytm" href="{{r.ytm_url}}" target="_blank" rel="noopener" title="Open in YouTube Music">
         <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="12" fill="#ff0000"/><path d="M10 8l6 4-6 4z" fill="#fff"/></svg>
@@ -1029,6 +1029,14 @@ TEMPLATE = r"""
 
 <script>
 function items(){return Array.from(document.querySelectorAll('#items .item'));}
+function artFail(img){
+  // dead/expired image url -> swap in the initials placeholder
+  const it=img.closest('.item');
+  const ph=document.createElement('div');
+  ph.className='ph';
+  ph.textContent=(it&&it.dataset.initials)||'?';
+  img.replaceWith(ph);
+}
 function closeHistory(){document.getElementById('history').style.display='none';}
 async function openHistory(){
   document.getElementById('history').style.display='flex';
@@ -1037,8 +1045,9 @@ async function openHistory(){
     const log=await (await fetch('/api/added')).json();
     if(!log.length){box.innerHTML='<span class="muted">Nothing added from here yet.</span>';return;}
     const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const when=ts=>new Date(ts*1000).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});
     box.innerHTML='<table><tr><th>when</th><th>YTM name</th><th>in Lidarr as</th><th>result</th></tr>'+
-      log.map(e=>`<tr><td class="muted">${esc(e.ts)}</td><td>${esc(e.ytm_name)}</td>`+
+      log.map(e=>`<tr><td class="muted">${when(e.ts)}</td><td>${esc(e.ytm_name)}</td>`+
         `<td>${esc(e.lidarr_name)||'—'}</td>`+
         `<td class="st-${esc(e.status)}">${esc(e.status)}${e.msg?' — '+esc(e.msg):''}</td></tr>`).join('')+
       '</table>';

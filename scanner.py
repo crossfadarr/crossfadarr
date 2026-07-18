@@ -95,19 +95,49 @@ def start() -> tuple[bool, dict | None]:
     return True, None
 
 
+def _fmt_remaining(seconds: float) -> str:
+    return f"~{max(1, round(seconds / 60))} min left" if seconds >= 90 \
+        else f"~{int(seconds)}s left"
+
+
 def _stage_cb(label: str, weight_done: int, weight: int):
-    def cb(done: int, total: int, *_extra) -> None:
+    t0 = time.time()
+
+    def cb(done: int, total: int, *extra) -> None:
         frac = (done / total) if total else 1.0
         pct = 100.0 * (weight_done + weight * frac) / _WEIGHT_TOTAL
-        msg = f"{label} — {done}/{total}" if total else label
+        if extra and isinstance(extra[0], str):
+            # named sub-step (ingest) — no numbers next to the stage counter
+            msg = f"{label} — {extra[0]}…"
+        elif total:
+            msg = f"{label} — {done}/{total}"
+            # live-pace estimate: elapsed/done self-corrects for cache hits
+            # and network jitter (constants would overshoot on warm re-scans)
+            if done:
+                remaining = (total - done) * (time.time() - t0) / done
+                if remaining > 45:
+                    msg += f" ({_fmt_remaining(remaining)})"
+        else:
+            msg = label
         _set(done=done, total=total, percent=round(pct, 1), message=msg)
     return cb
+
+
+def _artwork_hint() -> str:
+    if artwork._api_key() in artwork.FREE_KEYS:
+        return ("Artist portraits come from TheAudioDB, paced to their free "
+                "tier (~30 requests/min) — a private key in Settings runs ~3× "
+                "faster. Results are cached, so this is a first-scan cost.")
+    return ("Artist portraits come from TheAudioDB at the premium rate "
+            "(private key). Results are cached.")
 
 
 def _worker(auth: str) -> None:
     weight_done = 0
     summary: dict = {}
     for idx, (key, label, weight, hint) in enumerate(STAGES, 1):
+        if key == "artwork":
+            hint = _artwork_hint()
         _set(stage=key, stage_label=label, stage_index=idx, done=0, total=0,
              message=label, hint=hint,
              percent=round(100.0 * weight_done / _WEIGHT_TOTAL, 1))

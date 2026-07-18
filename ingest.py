@@ -105,21 +105,24 @@ class ArtistRegistry:
 
 
 def ingest(auth: str, progress=None) -> dict:
-    def _tick(step: int) -> None:
+    def _tick(step: int, label: str) -> None:
+        # named sub-steps (P5.11 batch): the label renders in the scan strip
+        # instead of a bare X/Y that reads like a stage counter
         if progress:
-            progress(step, 3)
+            progress(step, 3, label)
 
     yt = ytm_client.build(auth)
     reg = ArtistRegistry()
 
     # 1. Library artists (already artist-level).
+    _tick(0, "saved artists")
     lib = yt.get_library_artists(limit=None) or []
     for a in lib:
         reg.add(a.get("artist"), a.get("browseId"), "library",
                 thumb=_best_thumb(a.get("thumbnails")))
-    _tick(1)
 
     # 2. Subscriptions (followed artist channels).
+    _tick(1, "subscriptions")
     try:
         subs = yt.get_library_subscriptions(limit=None) or []
     except Exception:  # noqa: BLE001 - non-fatal, some accounts have none
@@ -127,9 +130,9 @@ def ingest(auth: str, progress=None) -> dict:
     for a in subs:
         reg.add(a.get("artist"), a.get("browseId"), "subscription",
                 thumb=_best_thumb(a.get("thumbnails")))
-    _tick(2)
 
     # 3. Liked songs -> track records + artist signal.
+    _tick(2, "liked songs")
     liked_raw = yt.get_liked_songs(limit=5000) or {}
     tracks = liked_raw.get("tracks", []) if isinstance(liked_raw, dict) else []
     liked_tracks = []
@@ -152,7 +155,7 @@ def ingest(auth: str, progress=None) -> dict:
             reg.add(x["name"], x.get("ytm_id"), "liked", thumb=track_thumb)
             reg.bump_liked(x["name"], x.get("ytm_id"))
 
-    _tick(3)
+    _tick(3, "sorting & saving")
     artists = reg.sorted_list()
 
     os.makedirs(DATA_DIR, exist_ok=True)
