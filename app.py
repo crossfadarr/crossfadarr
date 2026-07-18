@@ -763,7 +763,10 @@ TEMPLATE = r"""
   .tiers{margin-top:10px}
   #search{width:100%}
   .searchrow{margin-top:0}
-  .searchrow #search{flex:1 1 180px;width:auto;min-width:130px}
+  .searchrow .searchwrap{flex:1 1 180px;min-width:130px;position:relative;display:flex}
+  .searchwrap #search{width:100%;padding-right:30px}
+  #searchclear{position:absolute;right:7px;top:50%;transform:translateY(-50%);display:none;cursor:pointer;color:var(--mut);line-height:0;padding:4px;border-radius:6px}
+  #searchclear:hover{color:#fff;background:#1f2937}
   .small{font-size:12px}
   .toggle{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-top:10px}
   .toggle .tg{padding:5px 18px;cursor:pointer;font-size:13px;color:#ccc}
@@ -807,7 +810,10 @@ TEMPLATE = r"""
     <section class="panel grow2">
       <div class="phead"><span>Search &amp; filters</span></div>
       <div class="frow searchrow">
-        <input type="text" id="search" placeholder="search artists…" oninput="applyFilters()">
+        <span class="searchwrap">
+          <input type="text" id="search" placeholder="search artists…" oninput="applyFilters();syncSearchClear()">
+          <span id="searchclear" onclick="clearSearch()" title="Clear search"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></span>
+        </span>
         <span class="seg vwseg">
           <span class="vw active" data-v="cards" title="Card view">▦ cards</span>
           <span class="vw" data-v="list" title="List view">☰ list</span>
@@ -1180,6 +1186,14 @@ function applyFilters(){
     if(ok && document.getElementById('fnorel').checked) ok = it.dataset.norel!=='1';
     it.style.display = ok ? '' : 'none';
   });
+}
+function syncSearchClear(){
+  document.getElementById('searchclear').style.display =
+    document.getElementById('search').value ? 'inline-flex' : '';
+}
+function clearSearch(){
+  const s=document.getElementById('search');
+  s.value=''; syncSearchClear(); applyFilters(); s.focus();
 }
 function toggleInlib(){
   inlibShow=!inlibShow;
