@@ -748,7 +748,9 @@ TEMPLATE = r"""
   #scanhint:empty{display:none}
   .scanfill{height:100%;width:0%;background:var(--red);border-radius:999px;transition:width .4s}
   .setupbar.scan.ok .scanfill{background:#22c55e}
-  #scanbtn{white-space:nowrap}
+  #scanbtn{white-space:nowrap;display:inline-flex;align-items:center;gap:7px}
+  #scanbtn.scanning svg{animation:spin 1.1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
 
   /* organised control panels */
   .panels{display:flex;gap:12px;flex-wrap:wrap;padding:10px 16px 14px}
@@ -795,7 +797,10 @@ TEMPLATE = r"""
         <b>{{counts.in_lib}}</b><span>in Lidarr <svg class="eye" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/><line class="slash" x1="4" y1="4" x2="20" y2="20"/></svg></span>
       </div>
     </div>
-    <button class="secondary" id="scanbtn" onclick="startScan()" title="Re-scan your YouTube Music library and rebuild the artist list">⟳ Refresh from YouTube Music</button>
+    <button class="secondary" id="scanbtn" onclick="startScan()" title="Re-scan your YouTube Music library and rebuild the artist list">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      <span id="scanlbl">Refresh from YouTube Music</span>
+    </button>
     <span class="gear" onclick="openSettings()" title="Settings">⚙</span>
   </div>
   <div class="panels">
@@ -1283,11 +1288,16 @@ async function addSelected(){
   btn.disabled=false; btn.textContent='Add selected'; updateCount();
 }
 // P5.2 - in-app scan: start + poll /api/scan/status, survive page reloads
-const SCAN_LABEL='⟳ Refresh from YouTube Music';
 let scanPolling=false;
+function scanBtnState(running){
+  const btn=document.getElementById('scanbtn');
+  btn.disabled=running;
+  btn.classList.toggle('scanning',running);
+  document.getElementById('scanlbl').textContent=running?'Scanning…':'Refresh from YouTube Music';
+}
 function scanUI(j){
-  const bar=document.getElementById('scanbar'), btn=document.getElementById('scanbtn');
-  if(j.state==='idle'){bar.style.display='none';btn.disabled=false;btn.textContent=SCAN_LABEL;return;}
+  const bar=document.getElementById('scanbar');
+  if(j.state==='idle'){bar.style.display='none';scanBtnState(false);return;}
   bar.style.display='flex';
   bar.classList.toggle('err',j.state==='error');
   bar.classList.toggle('ok',j.state==='done');
@@ -1301,8 +1311,7 @@ function scanUI(j){
   document.getElementById('scanfill').style.width=(j.state==='done'?100:(j.percent||0))+'%';
   document.getElementById('scanretry').style.display = j.state==='error' ? '' : 'none';
   document.getElementById('scanreload').style.display = j.state==='done' ? '' : 'none';
-  btn.disabled = j.state==='running';
-  btn.textContent = j.state==='running' ? 'Scanning…' : SCAN_LABEL;
+  scanBtnState(j.state==='running');
 }
 async function pollScan(){
   let j;
