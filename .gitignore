@@ -1,6 +1,7 @@
 # Secrets / auth — NEVER commit these
 config.yaml
 auth.json
+auth.json.new
 browser.json
 oauth.json
 

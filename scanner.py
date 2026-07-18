@@ -41,9 +41,9 @@ STAGES = [
 ]
 _WEIGHT_TOTAL = sum(w for _, _, w in STAGES)
 
-AUTH_HELP = ("YouTube Music auth is missing or expired. Refresh it by running "
-             "`ytmusicapi browser` (writes browser.json) or "
-             "`python auth_setup.py browser`, then retry the scan.")
+AUTH_HELP = ("YouTube Music auth is missing or expired. Open ⚙ Settings → "
+             "YouTube Music auth and paste fresh headers (Copy as cURL from a "
+             "logged-in music.youtube.com /browse request), then retry the scan.")
 
 
 def _find_auth() -> str | None:
@@ -69,6 +69,14 @@ def _set(**kw) -> None:
 def status() -> dict:
     with _LOCK:
         return dict(STATE)
+
+
+def clear_error() -> None:
+    """Reset a settled error back to idle (e.g. after fresh auth is saved)."""
+    with _LOCK:
+        if STATE["state"] == "error":
+            STATE.clear()
+            STATE.update(_IDLE)
 
 
 def start() -> tuple[bool, dict | None]:

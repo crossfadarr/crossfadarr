@@ -10,12 +10,15 @@ Card grid (with artwork) or compact list; selection stays in sync across views.
 from __future__ import annotations
 
 import json
+import os
+import time
 import urllib.parse
 
 import yaml
 from flask import Flask, render_template_string, request, jsonify
 
 import scanner
+from curl_to_auth import curl_to_headers_raw
 from lidarr import Lidarr
 
 CONFIG_PATH = "config.yaml"
@@ -59,6 +62,14 @@ def _ytm_url(ytm_ids: list, name: str) -> str:
     if cid:
         return f"https://music.youtube.com/channel/{cid}"
     return "https://music.youtube.com/search?q=" + urllib.parse.quote(name)
+
+
+def _ytm_auth_state() -> str:
+    for c in ("auth.json", "browser.json", "oauth.json"):
+        if os.path.exists(c):
+            days = int((time.time() - os.path.getmtime(c)) / 86400)
+            return f"{c} · updated {'today' if days < 1 else f'{days}d ago'}"
+    return "not set up"
 
 
 def load_rows(existing: set) -> list[dict]:
@@ -132,6 +143,7 @@ def index():
         rootfolders=roots, qps=qps, mps=mps, defaults=LID.defaults,
         lidarr_url=LID.url, lidarr_key=LID.key,
         configured=LID.configured, lidarr_ok=lidarr_ok,
+        ytm_auth_state=_ytm_auth_state(),
     )
 
 
@@ -205,6 +217,49 @@ def api_settings():
         yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
     LID = Lidarr()  # reload with new settings
     return jsonify({"ok": True})
+
+
+@app.route("/api/ytm/auth", methods=["POST"])
+def api_ytm_auth():
+    """P5.3 - paste browser headers (raw or Copy-as-cURL) to refresh YTM auth.
+
+    Writes to a temp file and validates with a real liked-songs call before
+    replacing auth.json, so a bad paste never clobbers working auth. The pasted
+    content is never logged or echoed back.
+    """
+    raw = ((request.get_json(force=True).get("raw") or "")).strip()
+    if not raw:
+        return jsonify({"ok": False, "error": "paste headers or a cURL command first"})
+    tmp = "auth.json.new"
+    try:
+        headers_raw = curl_to_headers_raw(raw) if raw.lower().startswith("curl") else raw
+        from ytmusicapi import YTMusic, setup
+        setup(filepath=tmp, headers_raw=headers_raw)
+        # get_liked_songs is the reliable signed-out canary (library calls
+        # return empty instead of failing when cookies are stale).
+        YTMusic(tmp).get_liked_songs(limit=1)
+    except (Exception, SystemExit) as e:  # noqa: BLE001 - incl. curl parser's exit
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        msg = str(e)[:300] or "invalid headers"
+        low = msg.lower()
+        if "oauth json provided" in low:
+            # ytmusicapi's confusing fallback when the authorization header is
+            # missing — the paste didn't come from a full /browse request.
+            msg = ("headers incomplete — copy the full request (needs the "
+                   "authorization header): use Copy as cURL on a POST /browse "
+                   "request at music.youtube.com")
+        elif any(k in low for k in ("twocolumnbrowseresultsrenderer",
+                                    "sign in", "signed in", "401")):
+            msg = ("headers parsed, but YT Music says signed-out — copy them from "
+                   "a logged-in music.youtube.com tab (a POST to /browse)")
+        return jsonify({"ok": False, "error": msg})
+    os.replace(tmp, "auth.json")
+    scanner.clear_error()
+    return jsonify({"ok": True, "detail": "connected — your library is reachable",
+                    "state": _ytm_auth_state()})
 
 
 @app.route("/api/scan/start", methods=["POST"])
@@ -342,6 +397,8 @@ TEMPLATE = r"""
   .sheet h3{margin:0 0 14px;font-size:16px}
   .sheet label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
   .sheet input,.sheet select{width:100%}
+  .sheet textarea{width:100%;background:#0e1218;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-family:ui-monospace,Consolas,monospace;font-size:11px;resize:vertical}
+  .hint{font-size:11px;color:var(--mut);margin-top:5px;line-height:1.5}
   .sheet .inline{display:flex;gap:8px;align-items:center}
   .sheet hr{border:0;border-top:1px solid var(--line);margin:16px 0}
   .sheet .foot{display:flex;gap:10px;align-items:center;margin-top:16px}
@@ -526,6 +583,14 @@ TEMPLATE = r"""
       <option value="new" {{'selected' if defaults.get('monitor_new')=='new' else ''}}>New</option>
       <option value="none" {{'selected' if defaults.get('monitor_new')=='none' else ''}}>None</option>
     </select>
+    <hr>
+    <label>YouTube Music auth <span class="muted" id="ytm_state">· {{ytm_auth_state}}</span></label>
+    <textarea id="ytm_raw" rows="4" placeholder="Paste raw request headers or a &quot;Copy as cURL&quot; command here"></textarea>
+    <div class="hint">music.youtube.com (logged in) → F12 → Network → filter “browse” → right-click a POST /browse request → Copy → <b>Copy as cURL</b> → paste above. Validated before saving; nothing is stored if it fails.</div>
+    <div class="inline" style="margin-top:8px">
+      <button class="secondary" type="button" id="ytm_save" onclick="saveYtmAuth()">Save YTM auth</button>
+      <span id="ytm_msg"></span>
+    </div>
     <div class="foot">
       <button type="button" onclick="saveSettings()">Save</button>
       <button class="secondary" type="button" onclick="closeSettings()">Cancel</button>
@@ -560,6 +625,22 @@ async function saveSettings(){
     if(j.ok){m.className='ok';m.textContent='saved — reloading…';setTimeout(()=>location.reload(),700);}
     else{m.className='err';m.textContent='✗ '+j.error;}
   }catch(e){m.className='err';m.textContent='✗ '+e;}
+}
+async function saveYtmAuth(){
+  const m=document.getElementById('ytm_msg'); m.textContent='validating…'; m.className='';
+  const btn=document.getElementById('ytm_save'); btn.disabled=true;
+  try{
+    const r=await fetch('/api/ytm/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({raw:document.getElementById('ytm_raw').value})});
+    const j=await r.json();
+    if(j.ok){
+      m.className='ok'; m.textContent='✓ '+j.detail;
+      document.getElementById('ytm_raw').value='';
+      document.getElementById('ytm_state').textContent='· '+j.state;
+      const s=await (await fetch('/api/scan/status')).json(); scanUI(s);
+    }else{m.className='err';m.textContent='✗ '+j.error;}
+  }catch(e){m.className='err';m.textContent='✗ '+e;}
+  btn.disabled=false;
 }
 let filter='all';
 document.querySelectorAll('.flt').forEach(el=>el.onclick=()=>{
