@@ -948,8 +948,8 @@ TEMPLATE = r"""
       <option value="none" {{'selected' if defaults.get('monitor_new')=='none' else ''}}>None</option>
     </select>
     <label>TheAudioDB API key <span class="muted">(optional)</span></label>
-    <input id="s_tadb" type="text" value="{{tadb_key}}" placeholder="leave blank to use YouTube Music images only">
-    <div class="hint">Artist portraits come from TheAudioDB (same source Lidarr uses) when a key is set; without one, cards use the images YouTube Music provides. Keys are available via <a href="https://www.theaudiodb.com/api_apply.php" target="_blank" rel="noopener">theaudiodb.com</a>.</div>
+    <input id="s_tadb" type="text" value="{{tadb_key}}" placeholder="blank = free-tier key (123)">
+    <div class="hint">Artist portraits come from <a href="https://www.theaudiodb.com" target="_blank" rel="noopener">TheAudioDB</a>'s <b>v1</b> API — the same source Lidarr uses. Left blank, Crossfadarr uses their public free-tier key (123) and keeps requests within the free rate limit. If you support them on Patreon, enter your private key here. Artists without a portrait fall back to YouTube Music images.</div>
     <hr>
     <label>Security</label>
     <div class="authbox">

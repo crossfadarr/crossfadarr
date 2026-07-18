@@ -46,8 +46,10 @@ is added is Lidarr's business, configured by you, in Lidarr.
 - Python 3.11+
 - A [Lidarr](https://lidarr.audio/) instance and its API key
 - A YouTube Music account
-- Optional: a [TheAudioDB](https://www.theaudiodb.com/) API key for artist
-  portraits (without one, artwork comes from YouTube Music's own images)
+- Optional: a private [TheAudioDB](https://www.theaudiodb.com/) API key for
+  artist portraits — by default Crossfadarr uses their public free-tier key
+  (v1 API) within its rate limits, and falls back to YouTube Music's own
+  images for anything without a portrait
 
 ## Quick start
 
@@ -116,7 +118,7 @@ deduped candidate artists (+ thumbnails YTM already provides)
      │  match: MusicBrainz search, alias/Unicode-aware, cached, ~1 req/s
      ▼
 artist → MBID + confidence tier + alternates + release counts + genres
-     │  artwork: TheAudioDB portraits (optional key) → YTM images fallback
+     │  artwork: TheAudioDB portraits (v1 API, free tier) → YTM images fallback
      ▼
 review UI  →  Add selected  →  Lidarr (POST /api/v1/artist)
 ```
@@ -141,7 +143,7 @@ the app — no database server, easy to inspect, easy to back up.
 |---|---|---|
 | [ytmusicapi](https://github.com/sigma67/ytmusicapi) | Reading your own YTM library | Unofficial API |
 | [MusicBrainz](https://musicbrainz.org/) | Artist identification, genres, release counts | Throttled to ~1 req/s with a descriptive User-Agent, per their guidelines |
-| [TheAudioDB](https://www.theaudiodb.com/) | Artist portraits | Optional, bring your own key |
+| [TheAudioDB](https://www.theaudiodb.com/) | Artist portraits | v1 API; public free-tier key by default (rate-limited accordingly), private key optional |
 | [Lidarr](https://lidarr.audio/) | The destination | Its API v1, your instance |
 
 ## Disclaimers
