@@ -8,7 +8,7 @@ Think of it as a Lidify-style review grid, but sourced from what you actually
 listen to on YouTube Music rather than recommendations derived from your
 existing library.
 
-<!-- screenshot: add docs/screenshot.png before publishing -->
+![Crossfadarr review grid — YouTube Music artists matched, with art, ready to add to Lidarr](docs/app_screenshot.jpg)
 
 **What it is:** a metadata and library-management bridge. It reads your YTM
 account, matches artists to MusicBrainz, and adds the ones you pick to Lidarr
