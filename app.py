@@ -11,13 +11,17 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import threading
 import time
 import urllib.parse
+from datetime import timedelta
 from pathlib import Path
 
 import yaml
-from flask import Flask, render_template_string, request, jsonify
+from flask import (Flask, jsonify, redirect, render_template_string, request,
+                   session)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 import scanner
 import ytm_client
@@ -30,6 +34,100 @@ ADDED_LOG = os.path.join("data", "added_log.json")
 
 app = Flask(__name__)
 LID = Lidarr()
+
+
+# ---- P5.4: optional Forms login (arr-style) ---------------------------------
+
+def _read_cfg() -> dict:
+    try:
+        return yaml.safe_load(open(CONFIG_PATH, encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+
+
+def _write_cfg(cfg: dict) -> None:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
+
+
+def _load_or_create_secret() -> str:
+    """Persistent Flask session secret (config.yaml), created on first run."""
+    cfg = _read_cfg()
+    sk = cfg.get("secret_key")
+    if not sk:
+        sk = secrets.token_hex(32)
+        cfg["secret_key"] = sk
+        _write_cfg(cfg)
+    return sk
+
+
+app.secret_key = _load_or_create_secret()
+app.permanent_session_lifetime = timedelta(days=30)
+
+AUTH = dict(_read_cfg().get("auth") or {})  # enabled / username / password_hash
+
+
+@app.before_request
+def _require_login():
+    if not AUTH.get("enabled"):
+        return None
+    if request.path in ("/login", "/favicon.svg"):
+        return None
+    if session.get("authed"):
+        return None
+    if request.path.startswith("/api/") or request.method != "GET":
+        return jsonify({"ok": False, "error": "authentication required"}), 401
+    return redirect("/login")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not AUTH.get("enabled"):
+        return redirect("/")
+    error = None
+    if request.method == "POST":
+        u = (request.form.get("username") or "").strip()
+        p = request.form.get("password") or ""
+        pw_hash = AUTH.get("password_hash") or ""
+        if pw_hash and u == AUTH.get("username") and check_password_hash(pw_hash, p):
+            session["authed"] = True
+            session.permanent = True
+            return redirect("/")
+        time.sleep(0.6)  # soften brute-force attempts
+        error = "Invalid username or password"
+    return render_template_string(LOGIN_TEMPLATE, error=error)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/settings", methods=["POST"])
+def api_auth_settings():
+    global AUTH
+    d = request.get_json(force=True)
+    enabled = bool(d.get("enabled"))
+    username = (d.get("username") or "").strip()
+    password = d.get("password") or ""
+    cfg = _read_cfg()
+    auth = cfg.get("auth") or {}
+    if enabled:
+        if not username:
+            return jsonify({"ok": False, "error": "username required"})
+        if not password and not auth.get("password_hash"):
+            return jsonify({"ok": False, "error": "password required"})
+        auth["username"] = username
+        if password:
+            auth["password_hash"] = generate_password_hash(password)
+    auth["enabled"] = enabled
+    cfg["auth"] = auth
+    _write_cfg(cfg)
+    AUTH = dict(auth)
+    session["authed"] = True   # the enabling browser stays signed in
+    session.permanent = True
+    return jsonify({"ok": True, "enabled": enabled})
 
 TIER_ORDER = {"green": 0, "amber": 1, "red": 2, "none": 3}
 
@@ -155,6 +253,9 @@ def index():
         ytm_auth_state=_ytm_auth_state(),
         ytm_client_id=(ytm_client.client_creds() or ("", ""))[0],
         ytm_client_secret=(ytm_client.client_creds() or ("", ""))[1],
+        auth_enabled=bool(AUTH.get("enabled")),
+        auth_username=AUTH.get("username") or "",
+        auth_has_pw=bool(AUTH.get("password_hash")),
     )
 
 
@@ -461,6 +562,39 @@ FAVICON_SVG = (
 def favicon():
     return app.response_class(FAVICON_SVG, mimetype="image/svg+xml")
 
+
+LOGIN_TEMPLATE = r"""
+<!doctype html><html><head><meta charset="utf-8"><title>Crossfadarr — sign in</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+  :root{color-scheme:dark}
+  body{font-family:"Roboto","YouTube Sans",system-ui,Segoe UI,Arial,sans-serif;margin:0;
+       background:#0f0f0f;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .card{background:#212121;border:1px solid #303030;border-radius:14px;padding:34px 38px;
+        width:min(360px,90vw);box-shadow:0 20px 60px -20px #000;text-align:center}
+  .brand{display:flex;align-items:center;justify-content:center;gap:10px;font-weight:800;
+         font-size:24px;margin-bottom:24px}
+  input{width:100%;box-sizing:border-box;background:#0e1218;color:#fff;border:1px solid #303030;
+        border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:12px}
+  button{width:100%;background:#ff0000;color:#fff;border:0;border-radius:8px;padding:11px;
+         font-weight:700;font-size:14px;cursor:pointer}
+  .err{color:#fca5a5;font-size:13px;margin:0 0 12px}
+</style></head><body>
+<form class="card" method="post" action="/login">
+  <div class="brand">
+    <svg viewBox="0 0 100 100" width="30" height="30" aria-hidden="true">
+      <circle cx="50" cy="50" r="46" fill="#ff0000"/>
+      <path d="M42 33 L42 67 L70 50 Z" fill="#fff"/>
+    </svg>
+    Crossfadarr
+  </div>
+  {% if error %}<p class="err">{{error}}</p>{% endif %}
+  <input name="username" placeholder="Username" autofocus autocomplete="username">
+  <input name="password" type="password" placeholder="Password" autocomplete="current-password">
+  <button type="submit">Sign in</button>
+</form>
+</body></html>
+"""
 
 TEMPLATE = r"""
 <!doctype html><html><head><meta charset="utf-8"><title>Crossfadarr</title>
@@ -776,6 +910,31 @@ TEMPLATE = r"""
       <option value="none" {{'selected' if defaults.get('monitor_new')=='none' else ''}}>None</option>
     </select>
     <hr>
+    <label>Security</label>
+    <div class="authbox">
+      <div class="inline">
+        <label class="ctl" style="margin:0">Authentication
+          <select id="sec_enabled">
+            <option value="0" {{'selected' if not auth_enabled else ''}}>Disabled</option>
+            <option value="1" {{'selected' if auth_enabled else ''}}>Forms (login page)</option>
+          </select>
+        </label>
+      </div>
+      <div class="inline" style="margin-top:8px">
+        <input id="sec_user" type="text" placeholder="Username" value="{{auth_username}}" autocomplete="off">
+      </div>
+      <div class="inline" style="margin-top:8px">
+        <input id="sec_pass" type="password" placeholder="{{'New password (blank = keep current)' if auth_has_pw else 'Password'}}" autocomplete="new-password">
+      </div>
+      <div class="inline" style="margin-top:8px">
+        <button class="secondary" type="button" onclick="saveSecurity()">Save security</button>
+        {% if auth_enabled %}<button class="secondary" type="button" onclick="signOut()">Sign out</button>{% endif %}
+        <span id="sec_msg"></span>
+      </div>
+      <div class="hint">Optional arr-style login covering every page and API route. The password is stored as a salted hash in <code>config.yaml</code>. Locked out? Edit <code>config.yaml</code> → <code>auth: enabled: false</code> and restart.</div>
+    </div>
+
+    <hr>
     <label>YouTube Music auth <span class="muted" id="ytm_state">· {{ytm_auth_state}}</span></label>
 
     <div class="authbox">
@@ -861,6 +1020,26 @@ async function saveSettings(){
     if(j.ok){m.className='ok';m.textContent='saved — reloading…';setTimeout(()=>location.reload(),700);}
     else{m.className='err';m.textContent='✗ '+j.error;}
   }catch(e){m.className='err';m.textContent='✗ '+e;}
+}
+// P5.4 - optional Forms login
+async function saveSecurity(){
+  const m=document.getElementById('sec_msg'); m.textContent='saving…'; m.className='';
+  try{
+    const r=await fetch('/api/auth/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({enabled:document.getElementById('sec_enabled').value==='1',
+        username:document.getElementById('sec_user').value,
+        password:document.getElementById('sec_pass').value})});
+    const j=await r.json();
+    if(j.ok){
+      m.className='ok'; m.textContent='saved — reloading…';
+      document.getElementById('sec_pass').value='';
+      setTimeout(()=>location.reload(),700);
+    }else{m.className='err';m.textContent='✗ '+j.error;}
+  }catch(e){m.className='err';m.textContent='✗ '+e;}
+}
+async function signOut(){
+  try{ await fetch('/logout',{method:'POST'}); }catch(e){}
+  location='/login';
 }
 // P5.10 - OAuth device flow: connect, show code, poll until approved
 let oaPolling=false;
